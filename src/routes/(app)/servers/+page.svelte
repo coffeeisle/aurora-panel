@@ -219,7 +219,7 @@
 </div>
 
 {#if showDelete}
-	<button class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={() => showDelete = null} onkeydown={(e) => e.key === 'Escape' && (showDelete = null)}>
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="presentation" onclick={() => showDelete = null} onkeydown={(e) => e.key === 'Escape' && (showDelete = null)}>
 		<div class="w-80 rounded-xl border border-border bg-card p-6 shadow-2xl" role="dialog" onclick={(e) => e.stopPropagation()}>
 			<h3 class="text-base font-semibold text-foreground">Delete Server</h3>
 			<p class="mt-2 text-sm text-muted-foreground">This will permanently delete this server and all its data.</p>
