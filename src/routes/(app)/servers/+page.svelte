@@ -219,7 +219,13 @@
 </div>
 
 {#if showDelete}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="presentation" onclick={() => showDelete = null} onkeydown={(e) => e.key === 'Escape' && (showDelete = null)}>
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+		onclick={() => showDelete = null}
+		onkeydown={(e) => e.key === 'Escape' && (showDelete = null)}
+		role="presentation"
+		tabindex="0"
+	>
 		<!-- svelte-ignore a11y_no_static_element_interactions a11y_interactive_supports_focus -->
 		<div class="w-80 rounded-xl border border-border bg-card p-6 shadow-2xl" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()}>
 			<h3 class="text-base font-semibold text-foreground">Delete Server</h3>
@@ -240,5 +246,5 @@
 				</button>
 			</div>
 		</div>
-	</div>
+	</button>
 {/if}
