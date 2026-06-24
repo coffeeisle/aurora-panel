@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { toasts } from '$lib/stores/toast';
-	import { Download, Trash2, RotateCcw, Plus, Archive, Loader2 } from 'lucide-svelte';
+	import { Download, Trash2, RotateCcw, Plus, Archive, Loader2 } from '@lucide/svelte';
 
 	type Backup = {
 		id: string;

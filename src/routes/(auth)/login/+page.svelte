@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
-	import { LogIn } from 'lucide-svelte';
+	import { LogIn } from '@lucide/svelte';
 
 	let email = $state('');
 	let password = $state('');

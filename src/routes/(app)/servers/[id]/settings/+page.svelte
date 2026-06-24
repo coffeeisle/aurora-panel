@@ -4,7 +4,7 @@
 	import type { Server } from '$lib/types/server';
 	import { toasts } from '$lib/stores/toast';
 	import { daemonList } from '$lib/stores/daemon';
-	import { Save, Loader2 } from 'lucide-svelte';
+	import { Save, Loader2 } from '@lucide/svelte';
 
 	let name = $state('');
 	let startupCommand = $state('');

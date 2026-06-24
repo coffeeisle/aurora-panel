@@ -3,7 +3,7 @@
 	import { cn } from '$lib/utils/utils';
 	import { page } from '$app/stores';
 	import type { Server } from '$lib/types/server';
-	import { Server as ServerIcon, LayoutDashboard, HardDrive, Settings, Users, ChevronDown, Circle, Plus, PanelRightClose, PanelRightOpen } from 'lucide-svelte';
+	import { Server as ServerIcon, LayoutDashboard, HardDrive, Settings, Users, ChevronDown, Circle, Plus, PanelRightClose, PanelRightOpen } from '@lucide/svelte';
 
 	let serversExpanded = $state(true);
 	let collapsed = $state(false);

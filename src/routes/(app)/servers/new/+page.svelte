@@ -9,7 +9,7 @@
 		ChevronLeft, ChevronRight, Check, Server, Package,
 		SlidersHorizontal, Download, Search, X, Loader2,
 		ArrowRight, HardDrive, MemoryStick, Globe, Cpu
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	type Software = { id: string; name: string; loader: string; platform: string };
 	type ModrinthItem = { projectId: string; title: string; slug: string; type: 'mod' | 'plugin' | 'datapack' };

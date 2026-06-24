@@ -3,7 +3,7 @@
 	import AllowIncompatibleToggle from '$lib/components/modrinth/AllowIncompatibleToggle.svelte';
 	import { toasts } from '$lib/stores/toast';
 	import { installedProjects } from '$lib/stores/installed';
-	import { Search, Download, ExternalLink, Users, Loader2, RefreshCw, Check } from 'lucide-svelte';
+	import { Search, Download, ExternalLink, Users, Loader2, RefreshCw, Check } from '@lucide/svelte';
 
 	type ModrinthProject = {
 		project_id: string;

@@ -7,7 +7,7 @@
 	import {
 		Activity, Server as ServerIcon, HardDrive, MemoryStick, Wifi,
 		Play, Square, RotateCcw, Circle, Loader2
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 	import { formatBytes } from '$lib/utils/utils';
 	import { io, type Socket } from 'socket.io-client';
 

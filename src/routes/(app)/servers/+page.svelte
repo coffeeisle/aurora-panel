@@ -6,7 +6,7 @@
 	import {
 		Server as ServerIcon, Wifi, HardDrive, MemoryStick, Loader2, Plus, Globe, ChevronRight,
 		Play, Square, RotateCcw, Trash2
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	let serversList = $state<Server[]>([]);
 	let loading = $state(true);
@@ -221,7 +221,7 @@
 {#if showDelete}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="presentation" onclick={() => showDelete = null} onkeydown={(e) => e.key === 'Escape' && (showDelete = null)}>
 		<!-- svelte-ignore a11y_no_static_element_interactions a11y_interactive_supports_focus -->
-		<div class="w-80 rounded-xl border border-border bg-card p-6 shadow-2xl" role="dialog" onclick={(e) => e.stopPropagation()}>
+		<div class="w-80 rounded-xl border border-border bg-card p-6 shadow-2xl" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()}>
 			<h3 class="text-base font-semibold text-foreground">Delete Server</h3>
 			<p class="mt-2 text-sm text-muted-foreground">This will permanently delete this server and all its data.</p>
 			<div class="mt-4 flex items-center justify-end gap-2">

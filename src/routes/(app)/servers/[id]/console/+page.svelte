@@ -5,7 +5,7 @@
 	import Terminal from '$lib/components/console/Terminal.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
-	import { Send, Play, Square, RotateCcw, Trash2, Loader2 } from 'lucide-svelte';
+	import { Send, Play, Square, RotateCcw, Trash2, Loader2 } from '@lucide/svelte';
 
 	let socket: Socket | null = null;
 	let lines = $state<string[]>([]);

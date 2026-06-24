@@ -8,7 +8,7 @@
 	import {
 		Users, Settings, Plus, Trash2, Shield, ShieldAlert,
 		UserCog, X, Server, HardDrive, Database, Info
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	type AdminUser = {
 		id: string;

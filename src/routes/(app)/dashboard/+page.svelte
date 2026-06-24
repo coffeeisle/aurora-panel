@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Activity, Server, HardDrive, Users } from 'lucide-svelte';
+	import { Activity, Server, HardDrive, Users } from '@lucide/svelte';
 	import * as Card from '$lib/components/ui/card';
 
 	let totalServers = $state(0);

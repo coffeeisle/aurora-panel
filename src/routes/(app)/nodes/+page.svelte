@@ -6,7 +6,7 @@
 	import {
 		HardDrive, Wifi, WifiOff, Server, Cpu, MemoryStick, Activity, Plus,
 		Trash2, Edit, X, Circle, ExternalLink
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	const nodeSchema = z.object({
 		name: z.string().trim().min(1, 'Name is required').max(64, 'Name too long'),

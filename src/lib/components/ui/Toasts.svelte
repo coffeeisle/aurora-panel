@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { toasts, type Toast } from '$lib/stores/toast';
-	import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-svelte';
+	import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from '@lucide/svelte';
 
 	const iconMap: Record<string, typeof CheckCircle> = {
 		success: CheckCircle,

@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { toasts } from '$lib/stores/toast';
-	import { Clock, Plus, Play, Square, Trash2, Loader2, RefreshCw, Terminal, HardDrive, Search } from 'lucide-svelte';
+	import { Clock, Plus, Play, Square, Trash2, Loader2, RefreshCw, Terminal, HardDrive, Search } from '@lucide/svelte';
 
 	type ScheduledTask = {
 		id: string;

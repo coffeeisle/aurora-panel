@@ -18,7 +18,7 @@
 		Circle,
 		ArrowLeft,
 		Loader2
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	const serverTabs = [
 		{ href: 'overview', label: 'Overview', icon: LayoutDashboard },
