@@ -414,84 +414,85 @@
 						{searchQuery ? 'No results found' : 'Start typing to search'}
 					</div>
 				{:else}
-					{#each results as project (project.project_id)}
-						{@const isInstalled = $installedProjects.has(project.project_id)}
-						<div class="flex gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:bg-accent/30">
-							<img
-								src={project.icon_url || '/placeholder-icon.png'}
-								alt={project.title}
-								class="h-12 w-12 flex-shrink-0 rounded-md object-cover"
-							/>
-							<div class="flex-1 min-w-0">
-								<div class="flex items-start justify-between gap-2">
-									<div class="min-w-0">
+				{#each results as project (project.project_id)}
+					{@const isInstalled = $installedProjects.has(project.project_id)}
+					{@const entry = isInstalled ? $installedProjects.get(project.project_id) : null}
+					{@const hasUpdate = entry ? needsUpdate(entry) : false}
+					<div class="flex gap-4 rounded-xl border border-border bg-card p-3.5 transition-all duration-200 hover:border-primary/20 hover:shadow-sm hover:shadow-primary/5">
+						<img
+							src={project.icon_url || '/placeholder-icon.png'}
+							alt={project.title}
+							class="h-14 w-14 flex-shrink-0 rounded-lg object-cover"
+						/>
+						<div class="flex-1 min-w-0">
+							<div class="flex items-start justify-between gap-2">
+								<div class="min-w-0">
+									<div class="flex items-center gap-2">
 										<h3 class="text-sm font-semibold text-foreground truncate">{project.title}</h3>
-										<p class="text-xs text-muted-foreground">by {project.author}</p>
+										<span class="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground uppercase">{project.project_type}</span>
 									</div>
-									<div class="flex items-center gap-2 flex-shrink-0">
-										<a
-											href="https://modrinth.com/{project.project_type}/{project.slug}"
-											target="_blank"
-											rel="noopener noreferrer"
-											class="text-muted-foreground hover:text-foreground transition-colors"
-										>
-											<ExternalLink class="h-3.5 w-3.5" />
-										</a>
-									</div>
+									<p class="text-xs text-muted-foreground">by <span class="text-foreground/70">{project.author}</span></p>
 								</div>
-								<p class="mt-1 text-xs text-muted-foreground line-clamp-2">{project.description}</p>
-								<div class="mt-2 flex flex-wrap items-center gap-2">
-									{#each project.display_categories.slice(0, 3) as cat}
-										<span class="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-											{getCategoryIcon(cat)} {cat}
-										</span>
-									{/each}
-									<span class="inline-flex items-center gap-1 text-xs text-muted-foreground">
-										<Download class="h-3 w-3" />
-										{formatNumber(project.downloads)}
+								<a
+									href="https://modrinth.com/{project.project_type}/{project.slug}"
+									target="_blank"
+									rel="noopener noreferrer"
+									class="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+								>
+									<ExternalLink class="h-3.5 w-3.5" />
+								</a>
+							</div>
+							<p class="mt-1.5 text-xs leading-relaxed text-muted-foreground line-clamp-2">{project.description}</p>
+							<div class="mt-2.5 flex flex-wrap items-center gap-2">
+								{#each project.display_categories.slice(0, 3) as cat}
+									<span class="inline-flex items-center gap-1 rounded-md bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground">
+										{getCategoryIcon(cat)} {cat}
 									</span>
-									<span class="inline-flex items-center gap-1 text-xs text-muted-foreground">
-										<Users class="h-3 w-3" />
-										{formatNumber(project.follows)}
+								{/each}
+								<span class="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+									<Download class="h-3 w-3" />
+									{formatNumber(project.downloads)}
+								</span>
+								<span class="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+									<Users class="h-3 w-3" />
+									{formatNumber(project.follows)}
+								</span>
+								<div class="flex items-center gap-1.5 ml-auto">
+									<span title="Client side: {project.client_side}" class="text-[11px] {project.client_side === 'required' ? 'text-green-400' : project.client_side === 'optional' ? 'text-yellow-400' : 'text-red-400'}">
+										{getEnvIcon(project.client_side)} Client
 									</span>
-									<div class="flex items-center gap-1">
-										<span title="Client" class="text-xs {project.client_side === 'required' ? 'text-green-400' : project.client_side === 'optional' ? 'text-yellow-400' : 'text-red-400'}">
-											{getEnvIcon(project.client_side)}C
-										</span>
-										<span title="Server" class="text-xs {project.server_side === 'required' ? 'text-green-400' : project.server_side === 'optional' ? 'text-yellow-400' : 'text-red-400'}">
-											{getEnvIcon(project.server_side)}S
-										</span>
-									</div>
-									{#if isInstalled}
-										{@const entry = $installedProjects.get(project.project_id)}
-										{@const hasUpdate = entry && needsUpdate(entry)}
-										<span class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs {hasUpdate ? 'bg-yellow-500/10 text-yellow-400' : 'bg-green-500/10 text-green-400'}">
-											{#if hasUpdate}
-												<RefreshCw class="h-3 w-3" />
-												{entry?.versionNumber} → {latestVersions.get(project.project_id)}
-											{:else}
-												<Check class="h-3 w-3" />
-												{entry?.versionNumber || 'Installed'}
-											{/if}
-										</span>
-									{/if}
+									<span title="Server side: {project.server_side}" class="text-[11px] {project.server_side === 'required' ? 'text-green-400' : project.server_side === 'optional' ? 'text-yellow-400' : 'text-red-400'}">
+										{getEnvIcon(project.server_side)} Server
+									</span>
 								</div>
 							</div>
+						</div>
+						<div class="flex flex-col items-center gap-2 justify-center">
 							<button
-								class="flex-shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors {isInstalled ? 'bg-muted text-muted-foreground cursor-default' : installing.has(project.project_id) ? 'bg-muted text-muted-foreground cursor-wait' : 'bg-primary text-primary-foreground hover:bg-primary/90'}"
+								class="rounded-lg px-4 py-2 text-xs font-semibold transition-all duration-150 {isInstalled ? 'bg-muted text-muted-foreground cursor-default' : installing.has(project.project_id) ? 'bg-muted text-muted-foreground cursor-wait' : 'bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:shadow-md hover:shadow-primary/30 hover:brightness-110'}"
 								disabled={isInstalled || installing.has(project.project_id)}
 								onclick={() => installProject(project)}
 							>
 								{#if installing.has(project.project_id)}
-									<Loader2 class="h-3.5 w-3.5 animate-spin inline" />
+									<Loader2 class="h-3.5 w-3.5 animate-spin" />
 								{:else if isInstalled}
-									Installed
+									<Check class="h-3.5 w-3.5" />
 								{:else}
 									Install
 								{/if}
 							</button>
+							{#if isInstalled}
+								{#if hasUpdate}
+									<span class="inline-flex items-center gap-1 rounded-md bg-yellow-500/10 px-2 py-0.5 text-[10px] text-yellow-400">
+										Update available
+									</span>
+								{:else}
+									<span class="text-[10px] text-green-400">Latest</span>
+								{/if}
+							{/if}
 						</div>
-					{/each}
+					</div>
+				{/each}
 
 					{#if results.length < totalResults}
 						<div class="flex justify-center py-4">

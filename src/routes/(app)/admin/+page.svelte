@@ -146,9 +146,10 @@
 	}
 </script>
 
-<div class="space-y-6">
-	<div class="flex items-center justify-between">
-		<h1 class="text-2xl font-bold text-foreground">Administration</h1>
+<div class="mx-auto max-w-5xl space-y-8">
+	<div>
+		<h1 class="text-2xl font-bold tracking-tight text-foreground">Administration</h1>
+		<p class="mt-1 text-sm text-muted-foreground">Manage users and view system information</p>
 	</div>
 
 	<div class="flex gap-1 rounded-lg border border-border bg-card p-1 w-fit">

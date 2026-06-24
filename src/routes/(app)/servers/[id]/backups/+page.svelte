@@ -77,7 +77,15 @@
 		if (!confirm('Restore this backup? The server will be stopped and current data will be overwritten.')) return;
 		restoring = backupId;
 		try {
-			await new Promise((resolve) => setTimeout(resolve, 2000));
+			const res = await fetch(`/api/daemon/backup/restore`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ serverId, backupId })
+			});
+			if (!res.ok) {
+				const err = await res.json().catch(() => ({}));
+				throw new Error(err.error || 'Restore failed');
+			}
 			toasts.success('Backup restored', 'Server has been restored to the selected backup.');
 		} catch (e) {
 			toasts.error('Restore failed', e instanceof Error ? e.message : 'Unknown error');

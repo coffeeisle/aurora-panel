@@ -10,26 +10,26 @@
 		--card-foreground: 0 0% 98%;
 		--popover: 240 10% 5.9%;
 		--popover-foreground: 0 0% 98%;
-		--primary: 217 91% 60%;
-		--primary-foreground: 0 0% 100%;
+		--primary: 150 100% 50%;
+		--primary-foreground: 240 10% 3.9%;
 		--secondary: 240 3.7% 15.9%;
 		--secondary-foreground: 0 0% 98%;
 		--muted: 240 3.7% 15.9%;
 		--muted-foreground: 240 5% 64.9%;
-		--accent: 217 91% 60%;
-		--accent-foreground: 0 0% 100%;
+		--accent: 150 100% 50%;
+		--accent-foreground: 240 10% 3.9%;
 		--destructive: 0 62.8% 30.6%;
 		--destructive-foreground: 0 0% 98%;
 		--border: 240 3.7% 15.9%;
 		--input: 240 3.7% 15.9%;
-		--ring: 217 91% 60%;
-		--radius: 0.5rem;
+		--ring: 150 100% 50%;
+		--radius: 0.625rem;
 
-		--sidebar: 240 10% 5.9%;
+		--sidebar: 240 10% 3.9%;
 		--sidebar-foreground: 0 0% 98%;
-		--sidebar-muted: 240 3.7% 15.9%;
-		--sidebar-accent: 217 91% 60%;
-		--sidebar-border: 240 3.7% 15.9%;
+		--sidebar-muted: 240 3.7% 12.9%;
+		--sidebar-accent: 150 100% 50%;
+		--sidebar-border: 240 3.7% 12.9%;
 	}
 }
 
@@ -45,11 +45,28 @@
 	body {
 		@apply min-h-screen bg-background text-foreground;
 	}
+
+	::selection {
+		@apply bg-primary/20 text-primary;
+	}
 }
 
 @layer utilities {
 	.scrollbar-thin {
 		scrollbar-width: thin;
 		scrollbar-color: hsl(var(--muted)) transparent;
+	}
+}
+
+@layer components {
+	.card-hover {
+		@apply transition-all duration-200;
+	}
+	.card-hover:hover {
+		@apply -translate-y-0.5 shadow-lg shadow-primary/5;
+	}
+
+	.glow-accent {
+		box-shadow: 0 0 20px hsl(var(--primary) / 0.15);
 	}
 }

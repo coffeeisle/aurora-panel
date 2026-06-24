@@ -1,5 +1,6 @@
 import { io as createSocketClient, type Socket } from 'socket.io-client';
 import jwt from 'jsonwebtoken';
+import Docker from 'dockerode';
 
 const JWT_SECRET = process.env['DAEMON_JWT_SECRET'] ?? 'dev-secret';
 const PANEL_URL = process.env['PANEL_URL'] ?? 'http://localhost:5173';
@@ -28,12 +29,15 @@ interface ManagedServer {
 	dockerImage?: string;
 }
 
-// ── Docker Management ──
+// ── Docker Management (dockerode) ──
+const docker = new Docker();
+
 async function ensureDockerNetwork(): Promise<boolean> {
 	try {
-		const { exitCode } = await Bun.$`docker network inspect ${DOCKER_NETWORK}`.quiet();
-		if (exitCode !== 0) {
-			await Bun.$`docker network create ${DOCKER_NETWORK}`;
+		const networks = await docker.listNetworks();
+		const exists = networks.some(n => n.Name === DOCKER_NETWORK);
+		if (!exists) {
+			await docker.createNetwork({ Name: DOCKER_NETWORK });
 			console.log(`[Docker] Created network '${DOCKER_NETWORK}'`);
 		}
 		return true;
@@ -53,29 +57,38 @@ async function dockerStartContainer(srv: ManagedServer): Promise<boolean> {
 		const image = srv.dockerImage || 'itzg/minecraft-server:latest';
 		const serverDir = `${SERVERS_DIR}/${srv.id}`;
 
-		const args = [
-			'run', '-d',
-			'--name', containerName,
-			'--network', DOCKER_NETWORK,
-			'-p', `${srv.port}:${srv.port}`,
-			'-e', `MEMORY=${srv.allocatedMemory}M`,
-			'-e', `TYPE=${srv.loader || 'VANILLA'}`,
-			'-e', `VERSION=${srv.gameVersion}`,
-			'-v', `${serverDir}:/data`,
-			'--memory', `${srv.allocatedMemory}m`,
-			'--cpus', String(Math.ceil(srv.allocatedCpu / 100)),
-			'--restart', 'no',
-			image
-		];
-
-		const { exitCode, stderr } = await Bun.$`docker ${args}`.quiet();
-		if (exitCode === 0) {
-			console.log(`[Docker] Started container ${containerName} for ${srv.name}`);
+		const existing = await docker.getContainer(containerName).inspect().catch(() => null);
+		if (existing && existing.State.Status === 'running') {
+			console.log(`[Docker] Container ${containerName} already running`);
 			return true;
-		} else {
-			console.error(`[Docker] Failed to start ${containerName}:`, stderr.toString());
-			return false;
 		}
+		if (existing) {
+			await docker.getContainer(containerName).remove({ force: true }).catch(() => {});
+		}
+
+		await docker.pull(image);
+		const stream = await docker.createContainer({
+			Image: image,
+			name: containerName,
+			Hostname: srv.id,
+			ExposedPorts: { [`${srv.port}/tcp`]: {} },
+			Env: [
+				`MEMORY=${srv.allocatedMemory}M`,
+				`TYPE=${srv.loader?.toUpperCase() || 'VANILLA'}`,
+				`VERSION=${srv.gameVersion}`,
+			],
+			HostConfig: {
+				NetworkMode: DOCKER_NETWORK,
+				PortBindings: { [`${srv.port}/tcp`]: [{ HostPort: String(srv.port) }] },
+				Binds: [`${serverDir}:/data`],
+				Memory: srv.allocatedMemory * 1024 * 1024,
+				NanoCpus: Math.ceil(srv.allocatedCpu / 100) * 1e9,
+				RestartPolicy: { Name: 'no' }
+			},
+		});
+		await stream.start();
+		console.log(`[Docker] Started container ${containerName} for ${srv.name}`);
+		return true;
 	} catch (e) {
 		console.error('[Docker] Start error:', e);
 		return false;
@@ -85,11 +98,10 @@ async function dockerStartContainer(srv: ManagedServer): Promise<boolean> {
 async function dockerStopContainer(srv: ManagedServer): Promise<boolean> {
 	try {
 		const containerName = getContainerName(srv.id);
-		const { exitCode } = await Bun.$`docker stop ${containerName}`.quiet();
-		await Bun.$`docker rm ${containerName}`.quiet();
-		if (exitCode === 0) {
-			console.log(`[Docker] Stopped and removed container ${containerName}`);
-		}
+		const container = docker.getContainer(containerName);
+		await container.stop().catch(() => {});
+		await container.remove({ force: true }).catch(() => {});
+		console.log(`[Docker] Stopped and removed container ${containerName}`);
 		return true;
 	} catch (e) {
 		console.error('[Docker] Stop error:', e);
@@ -99,10 +111,8 @@ async function dockerStopContainer(srv: ManagedServer): Promise<boolean> {
 
 async function dockerContainerStatus(srv: ManagedServer): Promise<string> {
 	try {
-		const containerName = getContainerName(srv.id);
-		const proc = Bun.$`docker inspect --format='{{.State.Status}}' ${containerName}`;
-		const text = await proc.text();
-		return text.trim();
+		const info = await docker.getContainer(getContainerName(srv.id)).inspect();
+		return info.State.Status;
 	} catch {
 		return 'not_found';
 	}
@@ -110,17 +120,40 @@ async function dockerContainerStatus(srv: ManagedServer): Promise<string> {
 
 async function dockerExec(srv: ManagedServer, command: string): Promise<string> {
 	try {
-		const containerName = getContainerName(srv.id);
-		const proc = Bun.$`docker exec ${containerName} sh -c ${command}`;
-		const text = await proc.text();
-		return text.trim();
+		const exec = await docker.getContainer(getContainerName(srv.id)).exec({
+			Cmd: ['sh', '-c', command],
+			AttachStdout: true,
+			AttachStderr: true
+		});
+		const stream = await exec.start({ Detach: false, Tty: false });
+		return new Promise((resolve, reject) => {
+			let output = '';
+			stream.on('data', (chunk: Buffer) => { output += chunk.toString(); });
+			stream.on('end', () => resolve(output.trim()));
+			stream.on('error', reject);
+		});
 	} catch {
 		return '';
 	}
 }
 
-function getDockerLogs(srv: ManagedServer): string[] {
-	return [`[Docker] Container '${getContainerName(srv.id)}' log output (mock)`];
+async function getDockerLogs(srv: ManagedServer): Promise<string[]> {
+	try {
+		const container = docker.getContainer(getContainerName(srv.id));
+		const logs = await container.logs({ stdout: true, stderr: true, tail: 50 });
+		return logs.toString().split('\n').filter(Boolean);
+	} catch {
+		return [`[Docker] No logs available for ${getContainerName(srv.id)}`];
+	}
+}
+
+async function dockerPullImage(image: string): Promise<boolean> {
+	try {
+		await docker.pull(image);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 const mockOutputs = [
@@ -479,7 +512,7 @@ async function main() {
 		console.log(`[Daemon ${DAEMON_ID}] Created server ${srv.name} (${srv.id})`);
 
 		if (srv.processType === 'docker') {
-			const pulled = await Bun.$`docker pull ${srv.dockerImage || 'itzg/minecraft-server:latest'}`.quiet().then(() => true).catch(() => false);
+			const pulled = await dockerPullImage(srv.dockerImage || 'itzg/minecraft-server:latest');
 			if (pulled) console.log(`[Docker] Pulled image for ${srv.name}`);
 		}
 
@@ -508,7 +541,7 @@ async function main() {
 	socket.on('docker:logs', async (serverId: string) => {
 		const srv = getServer(serverId);
 		if (!srv || srv.processType !== 'docker') return;
-		const logs = getDockerLogs(srv);
+		const logs = await getDockerLogs(srv);
 		socket.emit('docker:logs:result', { serverId, logs });
 	});
 
