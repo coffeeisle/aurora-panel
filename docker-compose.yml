@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  panel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./servers:/app/servers
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:./data/aurora.db
+      - AUTH_SECRET=${AUTH_SECRET}
+      - DAEMON_JWT_SECRET=${DAEMON_JWT_SECRET}
+      - PUBLIC_APP_URL=https://panel.example.com
+      - PORT=3000
+    restart: unless-stopped
+
+  daemon:
+    build:
+      context: ./daemon
+      dockerfile: Dockerfile
+    ports:
+      - "8443:8443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./servers:/servers
+      - ./data/daemon:/data
+    environment:
+      - NODE_ENV=production
+      - DAEMON_PORT=8443
+      - PANEL_URL=https://panel:3000
+      - DAEMON_JWT_SECRET=${DAEMON_JWT_SECRET}
+    restart: unless-stopped
+    depends_on:
+      - panel
