@@ -1,24 +1,40 @@
 import { generateDaemonToken } from '$lib/server/daemon-auth';
-import type { DaemonStatus } from '$lib/stores/daemon';
 
-const DAEMON_JWT = generateDaemonToken('panel');
-
-interface DaemonInfo {
+export interface DaemonInfo {
 	id: string;
 	name: string;
 	url: string;
 	host: string;
 	port: number;
 	connected: boolean;
+	lastSeen: number;
+	health?: {
+		cpu: { load: number; cores: number };
+		memory: { total: number; used: number };
+		disk: { total: number; used: number };
+		uptime: number;
+		version: string;
+	} | null;
 }
 
 const knownDaemons = new Map<string, DaemonInfo>([
-	['node-01', { id: 'node-01', name: 'node-01', url: process.env['DAEMON_01_URL'] ?? 'http://localhost:8443', host: 'localhost', port: 8443, connected: false }],
+	['node-01', { id: 'node-01', name: 'node-01', url: process.env['DAEMON_01_URL'] ?? 'http://localhost:8443', host: 'localhost', port: 8443, connected: false, lastSeen: 0 }],
 ]);
 
-export function registerDaemonUrl(id: string, host: string, port: number) {
+let panelToken = generateDaemonToken('panel');
+let lastTokenGen = Date.now();
+
+function getOrRefreshToken(): string {
+	if (Date.now() - lastTokenGen > 3600000) {
+		panelToken = generateDaemonToken('panel');
+		lastTokenGen = Date.now();
+	}
+	return panelToken;
+}
+
+export function registerDaemon(id: string, host: string, port: number) {
 	const url = `http://${host}:${port}`;
-	knownDaemons.set(id, { id, name: id, url, host, port, connected: true });
+	knownDaemons.set(id, { id, name: id, url, host, port, connected: true, lastSeen: Date.now() });
 }
 
 export function getDaemonUrl(daemonId: string): string | null {
@@ -26,7 +42,7 @@ export function getDaemonUrl(daemonId: string): string | null {
 }
 
 export function getDaemonToken(): string {
-	return DAEMON_JWT;
+	return getOrRefreshToken();
 }
 
 export async function daemonFetch(
@@ -34,50 +50,66 @@ export async function daemonFetch(
 	path: string,
 	options?: RequestInit
 ): Promise<Response> {
-	const baseUrl = getDaemonUrl(daemonId);
-	if (!baseUrl) throw new Error(`Unknown daemon: ${daemonId}`);
+	const info = knownDaemons.get(daemonId);
+	if (!info) throw new Error(`Unknown daemon: ${daemonId}`);
 
-	return fetch(`${baseUrl}${path}`, {
+	const token = getOrRefreshToken();
+	const res = await fetch(`${info.url}${path}`, {
 		...options,
 		headers: {
-			'Authorization': `Bearer ${DAEMON_JWT}`,
+			'Authorization': `Bearer ${token}`,
 			'Content-Type': 'application/json',
 			...(options?.headers || {})
 		}
 	});
+
+	info.connected = res.ok;
+	info.lastSeen = Date.now();
+	return res;
 }
 
-export async function fetchDaemonHealth(daemonId: string): Promise<{
-	status: string;
-	daemonId: string;
-	cpu: { load: number; cores: number };
-	memory: { total: number; used: number };
-	disk: { total: number; used: number };
-	uptime: number;
-	version: string;
-} | null> {
+export async function fetchDaemonHealth(daemonId: string) {
 	try {
 		const res = await daemonFetch(daemonId, '/health');
-		if (!res.ok) return null;
-		return res.json();
+		if (!res.ok) {
+			setConnected(daemonId, false);
+			return null;
+		}
+		const data = await res.json();
+		const info = knownDaemons.get(daemonId);
+		if (info) {
+			info.connected = true;
+			info.health = {
+				cpu: data.cpu ?? { load: 0, cores: 0 },
+				memory: data.memory ?? { total: 0, used: 0 },
+				disk: data.disk ?? { total: 0, used: 0 },
+				uptime: data.uptime ?? 0,
+				version: data.version ?? '0.0.1'
+			};
+		}
+		return data;
 	} catch {
+		setConnected(daemonId, false);
 		return null;
 	}
 }
 
 export async function listServersFromDaemon(daemonId: string) {
 	const res = await daemonFetch(daemonId, '/servers');
-	if (!res.ok) throw new Error(`Failed to list servers: ${res.status}`);
+	if (!res.ok) throw new Error(`Failed to list servers from ${daemonId}: ${res.status}`);
 	return res.json();
+}
+
+function setConnected(daemonId: string, connected: boolean) {
+	const info = knownDaemons.get(daemonId);
+	if (info) {
+		info.connected = connected;
+		info.lastSeen = Date.now();
+	}
 }
 
 export function isDaemonConnected(daemonId: string): boolean {
 	return knownDaemons.get(daemonId)?.connected ?? false;
-}
-
-export function setDaemonConnected(daemonId: string, connected: boolean) {
-	const info = knownDaemons.get(daemonId);
-	if (info) info.connected = connected;
 }
 
 export function getConnectedDaemons(): DaemonInfo[] {
@@ -86,4 +118,12 @@ export function getConnectedDaemons(): DaemonInfo[] {
 
 export function getAllDaemons(): DaemonInfo[] {
 	return Array.from(knownDaemons.values());
+}
+
+export function getDaemon(id: string): DaemonInfo | undefined {
+	return knownDaemons.get(id);
+}
+
+export function removeDaemon(id: string) {
+	knownDaemons.delete(id);
 }

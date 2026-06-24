@@ -28,9 +28,9 @@
 	const serverId = $derived($page.params.id);
 
 	let newName = $state('');
-	let newType: 'cron' | 'interval' = 'interval';
+	let newType: 'cron' | 'interval' = $state('interval');
 	let newInterval = $state('3600');
-	let newAction: ScheduledTask['action'] = 'backup';
+	let newAction: ScheduledTask['action'] = $state('backup');
 	let newPayload = $state('');
 
 	onMount(() => loadSchedules());
@@ -195,9 +195,9 @@
 			</div>
 		{:else}
 			{#each schedules as sched (sched.id)}
+				{@const Icon = actionIcon(sched.action)}
 				<div class="flex items-center gap-4 rounded-lg border border-border bg-card p-4 {!sched.enabled ? 'opacity-50' : ''}">
 					<div class="flex h-10 w-10 items-center justify-center rounded-md bg-muted">
-						{#const Icon = actionIcon(sched.action)}
 						<Icon class="h-5 w-5 {actionColor(sched.action)}" />
 					</div>
 					<div class="flex-1 min-w-0">

@@ -45,7 +45,11 @@ function createToastStore() {
 		add({ type: 'warning', title, message, duration: 6000 });
 	}
 
-	return { subscribe, add, remove, success, error, info, warning };
+	function clear() {
+		update(() => []);
+	}
+
+	return { subscribe, add, remove, success, error, info, warning, clear };
 }
 
 export const toasts = createToastStore();

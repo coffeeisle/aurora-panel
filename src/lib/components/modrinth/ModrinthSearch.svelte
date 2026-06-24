@@ -54,6 +54,8 @@
 	const storageKey = $derived(`aurora:allowIncompatible:${serverId}`);
 	let allowIncompatible = $state(false);
 
+	let latestVersions = $state<Map<string, string>>(new Map());
+
 	$effect(() => {
 		try {
 			allowIncompatible = localStorage.getItem(storageKey) === 'true';
@@ -67,23 +69,49 @@
 		try {
 			const stored = localStorage.getItem(storageInstalledKey);
 			if (stored) {
-				const ids = JSON.parse(stored) as string[];
-				installedProjects.set(new Set(ids));
+				const parsed = JSON.parse(stored) as Record<string, import('$lib/stores/installed').InstalledEntry>;
+				installedProjects.fromJSON(parsed);
 			}
 		} catch {}
 	}
 
-	function saveInstalledToStorage(ids: Set<string>) {
+	function saveInstalledToStorage() {
 		try {
-			localStorage.setItem(storageInstalledKey, JSON.stringify(Array.from(ids)));
+			const current = $installedProjects;
+			localStorage.setItem(storageInstalledKey, JSON.stringify(installedProjects.toJSON(current)));
 		} catch {}
 	}
 
-	function addInstalled(id: string) {
-		const current = $installedProjects;
-		current.add(id);
-		installedProjects.set(new Set(current));
-		saveInstalledToStorage(current);
+	function addInstalled(projectId: string, versionId: string, versionNumber: string, title?: string) {
+		installedProjects.addEntry(projectId, versionId, versionNumber, title);
+		saveInstalledToStorage();
+	}
+
+	async function checkLatestVersion(projectId: string): Promise<string | null> {
+		try {
+			const res = await fetch(`/api/modrinth/project/${projectId}/latest`);
+			if (!res.ok) return null;
+			const data = await res.json();
+			return data.version_number ?? null;
+		} catch {
+			return null;
+		}
+	}
+
+	function needsUpdate(entry: import('$lib/stores/installed').InstalledEntry): boolean {
+		const latest = latestVersions.get(entry.projectId);
+		if (!latest) return false;
+		return latest !== entry.versionNumber;
+	}
+
+	async function refreshLatestVersions() {
+		const installed = Array.from($installedProjects.values());
+		const versionMap = new Map<string, string>();
+		for (const entry of installed) {
+			const latest = await checkLatestVersion(entry.projectId);
+			if (latest) versionMap.set(entry.projectId, latest);
+		}
+		latestVersions = versionMap;
 	}
 
 	let debounceTimer: ReturnType<typeof setTimeout>;
@@ -185,10 +213,11 @@
 				return;
 			}
 
-			addInstalled(projectId);
+			addInstalled(projectId, data.version?.id || '', data.version?.versionNumber || '', project.title);
+			refreshLatestVersions();
 			toasts.success(
 				`${project.title} installed`,
-				`${data.file.name} → ${data.file.targetFolder}/${data.file.name}${data.dependencies > 0 ? ` (${data.dependencies} dependencies resolved)` : ''}`
+				`${data.version?.versionNumber || data.file.name} → ${data.file.targetFolder}/${data.file.name}${data.dependencies > 0 ? ` (${data.dependencies} dependencies resolved)` : ''}`
 			);
 		} catch (e) {
 			toasts.error('Install Error', e instanceof Error ? e.message : 'Network error');
@@ -200,7 +229,7 @@
 	}
 
 	async function updateAll() {
-		const installed = Array.from($installedProjects);
+		const installed = Array.from($installedProjects.values());
 		if (installed.length === 0) {
 			toasts.info('Nothing to update', 'No installed items to check.');
 			return;
@@ -208,20 +237,24 @@
 		updatingAll = true;
 		let updated = 0;
 		let failed = 0;
-		for (const pid of installed) {
+		for (const entry of installed) {
 			try {
 				const res = await fetch(`/api/servers/${serverId}/modrinth/install`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ projectId: pid, projectType, allowIncompatible })
+					body: JSON.stringify({ projectId: entry.projectId, projectType, allowIncompatible })
 				});
-				if (res.ok) updated++;
-				else failed++;
+				if (res.ok) {
+					const data = await res.json();
+					addInstalled(entry.projectId, data.version?.id || '', data.version?.versionNumber || '', entry.title);
+					updated++;
+				} else failed++;
 			} catch {
 				failed++;
 			}
 		}
 		updatingAll = false;
+		refreshLatestVersions();
 		if (updated > 0) {
 			toasts.success('Update All complete', `${updated} updated, ${failed} failed`);
 		}
@@ -345,7 +378,16 @@
 				</div>
 			</div>
 			<div class="border-t border-border pt-4">
-				<AllowIncompatibleToggle />
+				<AllowIncompatibleToggle
+					enabled={allowIncompatible}
+					onToggle={(v) => {
+						allowIncompatible = v;
+						try {
+							if (v) localStorage.setItem(storageKey, 'true');
+							else localStorage.removeItem(storageKey);
+						} catch {}
+					}}
+				/>
 			</div>
 		</aside>
 
@@ -421,9 +463,16 @@
 										</span>
 									</div>
 									{#if isInstalled}
-										<span class="inline-flex items-center gap-1 rounded-md bg-green-500/10 px-2 py-0.5 text-xs text-green-400">
-											<Check class="h-3 w-3" />
-											Installed
+										{@const entry = $installedProjects.get(project.project_id)}
+										{@const hasUpdate = entry && needsUpdate(entry)}
+										<span class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs {hasUpdate ? 'bg-yellow-500/10 text-yellow-400' : 'bg-green-500/10 text-green-400'}">
+											{#if hasUpdate}
+												<RefreshCw class="h-3 w-3" />
+												{entry?.versionNumber} → {latestVersions.get(project.project_id)}
+											{:else}
+												<Check class="h-3 w-3" />
+												{entry?.versionNumber || 'Installed'}
+											{/if}
 										</span>
 									{/if}
 								</div>

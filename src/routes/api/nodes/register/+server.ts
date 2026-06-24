@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { registerDaemonUrl } from '$lib/server/daemon-client';
+import { registerDaemon } from '$lib/server/daemon-client';
 
 export const POST: RequestHandler = async ({ request }) => {
 	const { id, host, port } = await request.json();
@@ -9,7 +9,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json({ success: false, error: 'Missing id or host' }, { status: 400 });
 	}
 
-	registerDaemonUrl(id, host, port || 8443);
+	registerDaemon(id, host, port || 8443);
 
 	return json({
 		success: true,

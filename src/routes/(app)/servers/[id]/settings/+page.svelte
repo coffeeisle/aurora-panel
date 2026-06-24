@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { servers, type Server } from '$lib/stores/servers';
+	import { servers } from '$lib/stores/servers';
+	import type { Server } from '$lib/types/server';
 	import { toasts } from '$lib/stores/toast';
 	import { daemonList } from '$lib/stores/daemon';
 	import { Save } from 'lucide-svelte';
@@ -34,8 +35,27 @@
 		}
 	});
 
-	function save() {
-		toasts.success('Settings saved', 'Server configuration updated.');
+	let saving = $state(false);
+
+	async function save() {
+		saving = true;
+		try {
+			const res = await fetch(`/api/servers/${serverId}/settings`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					name, startupCommand, allocatedMemory: memory, allocatedDisk: disk,
+					allocatedCpu: cpu, port: Number(port), nodeName: nodeId,
+					gameVersion, loader
+				})
+			});
+			if (!res.ok) throw new Error('Save failed');
+			toasts.success('Settings saved', 'Server configuration updated.');
+		} catch (e) {
+			toasts.error('Save failed', e instanceof Error ? e.message : 'Unknown error');
+		} finally {
+			saving = false;
+		}
 	}
 </script>
 

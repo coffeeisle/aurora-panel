@@ -1,39 +1,13 @@
 <script lang="ts">
 	import { AlertTriangle } from 'lucide-svelte';
-	import { page } from '$app/stores';
 
 	type Props = {
+		enabled: boolean;
+		onToggle: (value: boolean) => void;
 		class?: string;
 	};
 
-	let { class: className = '' }: Props = $props();
-
-	const serverId = $derived($page.params.id);
-	const storageKey = $derived(`aurora:allowIncompatible:${serverId}`);
-
-	let enabled = $state(false);
-
-	function loadPref() {
-		try {
-			const stored = localStorage.getItem(storageKey);
-			enabled = stored === 'true';
-		} catch {}
-	}
-
-	function toggle() {
-		enabled = !enabled;
-		try {
-			if (enabled) {
-				localStorage.setItem(storageKey, 'true');
-			} else {
-				localStorage.removeItem(storageKey);
-			}
-		} catch {}
-	}
-
-	$effect(() => {
-		loadPref();
-	});
+	let { enabled, onToggle, class: className = '' }: Props = $props();
 </script>
 
 <div class="space-y-2 {className}">
@@ -49,7 +23,7 @@
 			role="switch"
 			aria-checked={enabled}
 			aria-label="Allow incompatible installs"
-			onclick={toggle}
+			onclick={() => onToggle(!enabled)}
 			class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 {enabled ? 'bg-yellow-500' : 'bg-muted'}"
 		>
 			<span
