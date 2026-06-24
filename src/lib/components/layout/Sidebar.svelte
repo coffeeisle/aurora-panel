@@ -46,7 +46,7 @@
 			</a>
 		{/each}
 
-		<div class="my-2 border-t border-sidebar-border" />
+		<div class="my-2 border-t border-sidebar-border"></div>
 
 		<button
 			class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/70 hover:bg-sidebar-muted transition-colors"

@@ -9,6 +9,11 @@ export type WithElementRef<T, E extends HTMLElement = HTMLElement> = T & {
 	ref?: E | null;
 };
 
+export type WithoutChildrenOrChild<T> = T & {
+	children?: never;
+	child?: never;
+};
+
 export function formatBytes(bytes: number): string {
 	if (bytes === 0) return '0 B';
 	const k = 1024;
