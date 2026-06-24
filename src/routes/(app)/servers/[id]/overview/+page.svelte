@@ -1,15 +1,125 @@
 <script lang="ts">
+	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
 	import { servers } from '$lib/stores/servers';
+	import { toasts } from '$lib/stores/toast';
 	import * as Card from '$lib/components/ui/card';
-	import { Activity, Server, HardDrive, Users, MemoryStick, Wifi, Globe } from 'lucide-svelte';
+	import {
+		Activity, Server, HardDrive, MemoryStick, Wifi,
+		Play, Square, RotateCcw, Circle
+	} from 'lucide-svelte';
 	import { formatBytes } from '$lib/utils/utils';
+	import { io, type Socket } from 'socket.io-client';
 
-	let server = $derived($servers.find((s) => s.id === $page.params.id));
+	let socket: Socket | null = null;
+	let connected = $state(false);
+	let serverStatus = $state<string>('stopped');
+
+	const serverId = $derived($page.params.id);
+	const server = $derived($servers.find((s) => s.id === serverId));
+
+	$effect(() => {
+		if (server) serverStatus = server.status === 'installed' ? 'running' : 'stopped';
+	});
+
+	onMount(() => {
+		socket = io({
+			path: '/ws',
+			auth: { token: 'dev-token', type: 'browser' },
+			transports: ['websocket', 'polling']
+		});
+
+		socket.on('connect', () => {
+			connected = true;
+		});
+
+		socket.on('server:status', (data: { id: string; status: string }) => {
+			if (data.id === serverId) {
+				serverStatus = data.status;
+			}
+		});
+
+		return () => {
+			socket?.disconnect();
+			socket = null;
+		};
+	});
+
+	function startServer() {
+		socket?.emit('server:start', serverId);
+		serverStatus = 'starting';
+		toasts.info('Starting server', `${server?.name || serverId} is starting...`);
+	}
+
+	function stopServer() {
+		socket?.emit('server:stop', serverId);
+		serverStatus = 'stopping';
+		toasts.info('Stopping server', `${server?.name || serverId} is stopping...`);
+	}
+
+	function restartServer() {
+		socket?.emit('server:restart', serverId);
+		serverStatus = 'restarting';
+		toasts.info('Restarting server', `${server?.name || serverId} is restarting...`);
+	}
+
+	const isRunning = $derived(serverStatus === 'running');
+	const isBusy = $derived(serverStatus === 'starting' || serverStatus === 'stopping' || serverStatus === 'restarting');
+
+	const statusLabel = $derived(
+		serverStatus === 'running' ? 'Online' :
+		serverStatus === 'starting' ? 'Starting...' :
+		serverStatus === 'stopping' ? 'Stopping...' :
+		serverStatus === 'restarting' ? 'Restarting...' :
+		serverStatus === 'stopped' ? 'Offline' : serverStatus
+	);
+
+	const statusColor = $derived(
+		serverStatus === 'running' ? 'text-green-500' :
+		serverStatus === 'starting' || serverStatus === 'restarting' ? 'text-blue-500' :
+		serverStatus === 'stopping' ? 'text-yellow-500' :
+		'text-red-500'
+	);
 </script>
 
 {#if server}
 	<div class="space-y-6">
+		<div class="flex items-center justify-between rounded-lg border border-border bg-card p-4">
+			<div class="flex items-center gap-3">
+				<Circle class="h-3 w-3 {statusColor} fill-current {isBusy ? 'animate-pulse' : ''}" />
+				<div>
+					<span class="text-sm font-semibold text-foreground">{server.name}</span>
+					<p class="text-xs text-muted-foreground">{statusLabel}</p>
+				</div>
+			</div>
+			<div class="flex items-center gap-2">
+				<button
+					class="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-40"
+					disabled={isRunning || isBusy}
+					onclick={startServer}
+				>
+					<Play class="h-3.5 w-3.5" />
+					Start
+				</button>
+				<button
+					class="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-40"
+					disabled={!isRunning || isBusy}
+					onclick={restartServer}
+				>
+					<RotateCcw class="h-3.5 w-3.5" />
+					Restart
+				</button>
+				<button
+					class="flex items-center gap-1.5 rounded-md border border-red-400/30 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
+					disabled={!isRunning || isBusy}
+					onclick={stopServer}
+				>
+					<Square class="h-3.5 w-3.5" />
+					Stop
+				</button>
+			</div>
+		</div>
+
 		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 			<Card.Root>
 				<div class="flex items-center gap-4 p-4">

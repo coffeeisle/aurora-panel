@@ -70,12 +70,12 @@
 			<h3 class="text-sm font-semibold text-foreground mb-3">General</h3>
 			<div class="space-y-3">
 				<div>
-					<label class="mb-1 block text-xs text-muted-foreground">Server Name</label>
-					<input bind:value={name} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
+					<label for="set-name" class="mb-1 block text-xs text-muted-foreground">Server Name</label>
+					<input id="set-name" bind:value={name} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-muted-foreground">Startup Command</label>
-					<input bind:value={startupCommand} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs font-mono text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
+					<label for="set-cmd" class="mb-1 block text-xs text-muted-foreground">Startup Command</label>
+					<input id="set-cmd" bind:value={startupCommand} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs font-mono text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
 				</div>
 			</div>
 		</div>
@@ -84,16 +84,16 @@
 			<h3 class="text-sm font-semibold text-foreground mb-3">Resource Limits</h3>
 			<div class="grid grid-cols-3 gap-3">
 				<div>
-					<label class="mb-1 block text-xs text-muted-foreground">Memory (MB)</label>
-					<input bind:value={memory} type="number" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
+					<label for="set-mem" class="mb-1 block text-xs text-muted-foreground">Memory (MB)</label>
+					<input id="set-mem" bind:value={memory} type="number" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-muted-foreground">Disk (MB)</label>
-					<input bind:value={disk} type="number" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
+					<label for="set-disk" class="mb-1 block text-xs text-muted-foreground">Disk (MB)</label>
+					<input id="set-disk" bind:value={disk} type="number" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-muted-foreground">CPU (%)</label>
-					<input bind:value={cpu} type="number" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
+					<label for="set-cpu" class="mb-1 block text-xs text-muted-foreground">CPU (%)</label>
+					<input id="set-cpu" bind:value={cpu} type="number" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
 				</div>
 			</div>
 		</div>
@@ -103,21 +103,21 @@
 			<div class="space-y-3">
 				<div class="grid grid-cols-2 gap-3">
 					<div>
-						<label class="mb-1 block text-xs text-muted-foreground">Process Type</label>
-						<select bind:value={processType} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
+						<label for="set-proc" class="mb-1 block text-xs text-muted-foreground">Process Type</label>
+						<select id="set-proc" bind:value={processType} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
 							<option value="docker">Docker</option>
 							<option value="bare">Bare Metal</option>
 						</select>
 					</div>
 					<div>
-						<label class="mb-1 block text-xs text-muted-foreground">Docker Image</label>
-						<input bind:value={dockerImage} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs font-mono text-foreground outline-none focus:border-primary" />
+						<label for="set-img" class="mb-1 block text-xs text-muted-foreground">Docker Image</label>
+						<input id="set-img" bind:value={dockerImage} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs font-mono text-foreground outline-none focus:border-primary" />
 					</div>
 				</div>
 				<div class="grid grid-cols-2 gap-3">
 					<div>
-						<label class="mb-1 block text-xs text-muted-foreground">Assignment</label>
-						<select bind:value={nodeId} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
+						<label for="set-node" class="mb-1 block text-xs text-muted-foreground">Assignment</label>
+						<select id="set-node" bind:value={nodeId} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
 							<option value="">— Select Node —</option>
 							{#each $daemonList as d}
 								<option value={d.id}>{d.name} {d.connected ? '(online)' : '(offline)'}</option>
@@ -125,8 +125,8 @@
 						</select>
 					</div>
 					<div>
-						<label class="mb-1 block text-xs text-muted-foreground">Port</label>
-						<input bind:value={port} type="number" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
+						<label for="set-port" class="mb-1 block text-xs text-muted-foreground">Port</label>
+						<input id="set-port" bind:value={port} type="number" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
 					</div>
 				</div>
 			</div>
@@ -136,8 +136,8 @@
 			<h3 class="text-sm font-semibold text-foreground mb-3">Modrinth Defaults</h3>
 			<div class="grid grid-cols-2 gap-3">
 				<div>
-					<label class="mb-1 block text-xs text-muted-foreground">Game Version</label>
-					<select bind:value={gameVersion} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
+					<label for="set-gver" class="mb-1 block text-xs text-muted-foreground">Game Version</label>
+					<select id="set-gver" bind:value={gameVersion} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
 						<option value="1.21.4">1.21.4</option>
 						<option value="1.21.3">1.21.3</option>
 						<option value="1.20.1">1.20.1</option>
@@ -147,8 +147,8 @@
 					</select>
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-muted-foreground">Default Loader</label>
-					<select bind:value={loader} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
+					<label for="set-loader" class="mb-1 block text-xs text-muted-foreground">Default Loader</label>
+					<select id="set-loader" bind:value={loader} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
 						<option value="fabric">Fabric</option>
 						<option value="forge">Forge</option>
 						<option value="neoforge">NeoForge</option>

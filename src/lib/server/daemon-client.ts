@@ -127,3 +127,57 @@ export function getDaemon(id: string): DaemonInfo | undefined {
 export function removeDaemon(id: string) {
 	knownDaemons.delete(id);
 }
+
+// ── File Operations ──
+
+export async function daemonListFiles(daemonId: string, serverId: string, dir: string) {
+	return daemonFetch(daemonId, `/files?server=${encodeURIComponent(serverId)}&dir=${encodeURIComponent(dir)}`);
+}
+
+export async function daemonReadFile(daemonId: string, serverId: string, filePath: string): Promise<{ content: string } | null> {
+	try {
+		const res = await daemonFetch(daemonId, `/files?server=${encodeURIComponent(serverId)}&path=${encodeURIComponent(filePath)}`);
+		if (!res.ok) return null;
+		return res.json();
+	} catch { return null; }
+}
+
+export async function daemonWriteFile(daemonId: string, serverId: string, filePath: string, content: string): Promise<boolean> {
+	try {
+		const res = await daemonFetch(daemonId, `/files?server=${encodeURIComponent(serverId)}&path=${encodeURIComponent(filePath)}`, {
+			method: 'PUT',
+			body: JSON.stringify({ content })
+		});
+		return res.ok;
+	} catch { return false; }
+}
+
+export async function daemonDeleteEntry(daemonId: string, serverId: string, filePath: string): Promise<boolean> {
+	try {
+		const res = await daemonFetch(daemonId, `/files?server=${encodeURIComponent(serverId)}&path=${encodeURIComponent(filePath)}`, {
+			method: 'DELETE'
+		});
+		return res.ok;
+	} catch { return false; }
+}
+
+export async function daemonRenameEntry(daemonId: string, serverId: string, oldPath: string, newName: string): Promise<boolean> {
+	try {
+		const res = await daemonFetch(daemonId, `/files?server=${encodeURIComponent(serverId)}&path=${encodeURIComponent(oldPath)}&action=rename`, {
+			method: 'PATCH',
+			body: JSON.stringify({ name: newName })
+		});
+		return res.ok;
+	} catch { return false; }
+}
+
+export async function daemonCreateEntry(daemonId: string, serverId: string, parentDir: string, name: string, type: 'file' | 'directory'): Promise<boolean> {
+	try {
+		const action = type === 'directory' ? 'mkdir' : 'touch';
+		const res = await daemonFetch(daemonId, `/files?server=${encodeURIComponent(serverId)}&dir=${encodeURIComponent(parentDir)}&action=${action}`, {
+			method: 'PATCH',
+			body: JSON.stringify({ name })
+		});
+		return res.ok;
+	} catch { return false; }
+}

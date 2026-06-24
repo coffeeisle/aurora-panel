@@ -147,19 +147,19 @@
 			<h3 class="text-sm font-semibold text-foreground mb-3">Create Schedule</h3>
 			<div class="grid grid-cols-2 gap-3">
 				<div class="col-span-2">
-					<label class="mb-1 block text-xs text-muted-foreground">Name</label>
-					<input bind:value={newName} placeholder="Daily backup" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
+					<label for="sched-name" class="mb-1 block text-xs text-muted-foreground">Name</label>
+					<input id="sched-name" bind:value={newName} placeholder="Daily backup" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-muted-foreground">Type</label>
-					<select bind:value={newType} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
+					<label for="sched-type" class="mb-1 block text-xs text-muted-foreground">Type</label>
+					<select id="sched-type" bind:value={newType} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
 						<option value="interval">Interval</option>
 						<option value="cron">Cron</option>
 					</select>
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-muted-foreground">Action</label>
-					<select bind:value={newAction} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
+					<label for="sched-action" class="mb-1 block text-xs text-muted-foreground">Action</label>
+					<select id="sched-action" bind:value={newAction} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
 						<option value="backup">Backup</option>
 						<option value="restart">Restart</option>
 						<option value="command">Command</option>
@@ -167,12 +167,12 @@
 					</select>
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-muted-foreground">Interval (seconds)</label>
-					<input bind:value={newInterval} placeholder="3600" type="number" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
+					<label for="sched-interval" class="mb-1 block text-xs text-muted-foreground">Interval (seconds)</label>
+					<input id="sched-interval" bind:value={newInterval} placeholder="3600" type="number" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-muted-foreground">Payload (command, etc.)</label>
-					<input bind:value={newPayload} placeholder="/say Restarting..." class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
+					<label for="sched-payload" class="mb-1 block text-xs text-muted-foreground">Payload (command, etc.)</label>
+					<input id="sched-payload" bind:value={newPayload} placeholder="/say Restarting..." class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
 				</div>
 			</div>
 			<div class="flex gap-2 mt-3">
