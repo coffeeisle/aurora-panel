@@ -69,3 +69,63 @@ export const sessions = sqliteTable('sessions', {
 });
 
 export type Session = InferSelectModel<typeof sessions>;
+
+export const backups = sqliteTable('backups', {
+	id: text('id').primaryKey(),
+	serverId: text('server_id').notNull().references(() => servers.id),
+	name: text('name').notNull(),
+	size: integer('size').notNull(),
+	type: text('type', { enum: ['full', 'partial', 'incremental'] }).notNull().default('full'),
+	checksum: text('checksum'),
+	filePath: text('file_path'),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull()
+});
+
+export type Backup = InferSelectModel<typeof backups>;
+export type NewBackup = InferInsertModel<typeof backups>;
+
+export const schedules = sqliteTable('schedules', {
+	id: text('id').primaryKey(),
+	serverId: text('server_id').notNull().references(() => servers.id),
+	name: text('name').notNull(),
+	description: text('description').default(''),
+	type: text('type', { enum: ['cron', 'interval'] }).notNull(),
+	cronExpression: text('cron_expression'),
+	intervalSeconds: integer('interval_seconds'),
+	action: text('action', { enum: ['restart', 'backup', 'command', 'update_check'] }).notNull(),
+	payload: text('payload').default(''),
+	enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+	lastRunAt: integer('last_run_at', { mode: 'timestamp' }),
+	nextRunAt: integer('next_run_at', { mode: 'timestamp' }),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull()
+});
+
+export type Schedule = InferSelectModel<typeof schedules>;
+export type NewSchedule = InferInsertModel<typeof schedules>;
+
+export const installedMods = sqliteTable('installed_mods', {
+	id: text('id').primaryKey(),
+	serverId: text('server_id').notNull().references(() => servers.id),
+	projectId: text('project_id').notNull(),
+	projectType: text('project_type').notNull(),
+	versionId: text('version_id').notNull(),
+	versionNumber: text('version_number').notNull(),
+	title: text('title'),
+	slug: text('slug'),
+	iconUrl: text('icon_url'),
+	installedAt: integer('installed_at', { mode: 'timestamp' }).notNull()
+});
+
+export type InstalledMod = InferSelectModel<typeof installedMods>;
+export type NewInstalledMod = InferInsertModel<typeof installedMods>;
+
+export const serverPermissions = sqliteTable('server_permissions', {
+	id: text('id').primaryKey(),
+	serverId: text('server_id').notNull().references(() => servers.id),
+	userId: text('user_id').notNull().references(() => users.id),
+	role: text('role', { enum: ['owner', 'admin', 'moderator', 'viewer'] }).notNull().default('viewer'),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull()
+});
+
+export type ServerPermission = InferSelectModel<typeof serverPermissions>;
+export type NewServerPermission = InferInsertModel<typeof serverPermissions>;

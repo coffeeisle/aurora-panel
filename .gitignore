@@ -24,3 +24,5 @@ vite.config.ts.timestamp-*
 AGENTS.md
 SYSTEM-PROMPT-AURORA.md
 panels-reference.md
+/data
+/drizzle/meta

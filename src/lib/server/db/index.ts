@@ -1,9 +1,10 @@
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { Database } from 'bun:sqlite';
+import { drizzle } from 'drizzle-orm/bun-sqlite';
 import * as schema from './schema';
 
-const sqlite = new Database(process.env['DATABASE_URL']?.replace('file:', '') ?? './data/aurora.db');
-sqlite.pragma('journal_mode = WAL');
-sqlite.pragma('foreign_keys = ON');
+const dbPath = process.env['DATABASE_URL']?.replace('file:', '') ?? './data/aurora.db';
+const sqlite = new Database(dbPath);
+sqlite.run('PRAGMA journal_mode = WAL');
+sqlite.run('PRAGMA foreign_keys = ON');
 
 export const db = drizzle(sqlite, { schema });
