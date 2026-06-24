@@ -1,7 +1,11 @@
 <script lang="ts">
+	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
 	import { servers } from '$lib/stores/servers';
+	import { daemonStore } from '$lib/stores/daemon';
+	import type { Server } from '$lib/types/server';
 	import { cn } from '$lib/utils/utils';
+	import { io, type Socket } from 'socket.io-client';
 	import {
 		LayoutDashboard,
 		Terminal,
@@ -31,6 +35,29 @@
 	];
 
 	let { children } = $props();
+
+	let socket: Socket | null = null;
+
+	onMount(() => {
+		socket = io({
+			path: '/ws',
+			auth: { token: 'dev-token', type: 'browser' },
+			transports: ['websocket', 'polling']
+		});
+
+		socket.on('server:status', (data: { id: string; status: string }) => {
+			const status = data.status as Server['status'];
+			servers.update((srvList) =>
+				srvList.map((s) => (s.id === data.id ? { ...s, status } : s))
+			);
+			daemonStore.updateServerStatus(data.id, status);
+		});
+
+		return () => {
+			socket?.disconnect();
+			socket = null;
+		};
+	});
 
 	let server = $derived($servers.find((s) => s.id === $page.params.id) ?? null);
 </script>

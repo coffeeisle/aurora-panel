@@ -135,7 +135,7 @@ function writeDaemonFile(serverId: string, filePath: string, content: string): v
 	daemonContents.set(`${serverId}:${filePath}`, content);
 	const dirKey = `${serverId}:/`;
 	const entries = daemonFiles.get(dirKey) || [];
-	const existing = entries.find(e => e.path === filePath || `/${e.name}` === filePath);
+	const existing = entries.find(e => `/${e.name}` === filePath);
 	if (!existing) {
 		entries.push({ name: filePath.split('/').pop() || 'file', type: 'file', size: content.length, modifiedAt: new Date().toISOString(), mime: 'text/plain' });
 	}

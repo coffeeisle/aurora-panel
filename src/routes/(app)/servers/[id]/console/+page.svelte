@@ -5,21 +5,21 @@
 	import Terminal from '$lib/components/console/Terminal.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
-	import { Send, Play, Square, RotateCcw, Trash2 } from 'lucide-svelte';
-	import { goto } from '$app/navigation';
+	import { Send, Play, Square, RotateCcw, Trash2, Loader2 } from 'lucide-svelte';
 
 	let socket: Socket | null = null;
 	let lines = $state<string[]>([]);
 	let command = $state('');
 	let connected = $state(false);
-	let serverRunning = $state(true);
+	let serverStatus = $state<'running' | 'stopped' | 'starting' | 'stopping' | 'restarting'>('running');
 
 	const serverId = $derived($page.params.id);
 
-	onMount(() => {
-		const wsUrl = $page.url.origin;
+	const isRunning = $derived(serverStatus === 'running');
+	const isBusy = $derived(serverStatus === 'starting' || serverStatus === 'stopping' || serverStatus === 'restarting');
 
-		socket = io(wsUrl, {
+	onMount(() => {
+		socket = io({
 			path: '/ws',
 			auth: { token: 'dev-token', type: 'browser' },
 			transports: ['websocket', 'polling']
@@ -36,6 +36,14 @@
 
 		socket.on('console:output', ({ line }: { line: string }) => {
 			lines = [...lines, line];
+		});
+
+		socket.on('server:status', (data: { id: string; status: string }) => {
+			if (data.id === serverId) {
+				serverStatus = data.status as typeof serverStatus;
+				if (data.status === 'running') lines = [...lines, '[INFO] Server is online'];
+				else if (data.status === 'stopped') lines = [...lines, '[WARN] Server is offline'];
+			}
 		});
 
 		socket.on('connect_error', (err) => {
@@ -64,18 +72,19 @@
 	}
 
 	function startServer() {
-		serverRunning = true;
+		serverStatus = 'starting';
 		lines = [...lines, '[INFO] Server starting...'];
 		socket?.emit('server:start', serverId);
 	}
 
 	function stopServer() {
-		serverRunning = false;
+		serverStatus = 'stopping';
 		lines = [...lines, '[WARN] Stopping server...'];
 		socket?.emit('server:stop', serverId);
 	}
 
 	function restartServer() {
+		serverStatus = 'restarting';
 		lines = [...lines, '[INFO] Server restarting...'];
 		socket?.emit('server:restart', serverId);
 	}
@@ -85,16 +94,28 @@
 	<div class="flex items-center justify-between mb-4">
 		<h1 class="text-lg font-bold text-foreground">Console</h1>
 		<div class="flex items-center gap-2">
-			<Button variant="outline" size="sm" onclick={startServer} disabled={serverRunning}>
-				<Play class="mr-1 h-3.5 w-3.5" />
+			<Button variant="outline" size="sm" onclick={startServer} disabled={isRunning || isBusy}>
+				{#if serverStatus === 'starting'}
+					<Loader2 class="mr-1 h-3.5 w-3.5 animate-spin" />
+				{:else}
+					<Play class="mr-1 h-3.5 w-3.5" />
+				{/if}
 				Start
 			</Button>
-			<Button variant="outline" size="sm" onclick={restartServer} disabled={!serverRunning}>
-				<RotateCcw class="mr-1 h-3.5 w-3.5" />
+			<Button variant="outline" size="sm" onclick={restartServer} disabled={!isRunning || isBusy}>
+				{#if serverStatus === 'restarting'}
+					<Loader2 class="mr-1 h-3.5 w-3.5 animate-spin" />
+				{:else}
+					<RotateCcw class="mr-1 h-3.5 w-3.5" />
+				{/if}
 				Restart
 			</Button>
-			<Button variant="destructive" size="sm" onclick={stopServer} disabled={!serverRunning}>
-				<Square class="mr-1 h-3.5 w-3.5" />
+			<Button variant="destructive" size="sm" onclick={stopServer} disabled={!isRunning || isBusy}>
+				{#if serverStatus === 'stopping'}
+					<Loader2 class="mr-1 h-3.5 w-3.5 animate-spin" />
+				{:else}
+					<Square class="mr-1 h-3.5 w-3.5" />
+				{/if}
 				Stop
 			</Button>
 			<Button variant="ghost" size="sm" onclick={clearConsole}>

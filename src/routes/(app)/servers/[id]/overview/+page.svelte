@@ -6,7 +6,7 @@
 	import * as Card from '$lib/components/ui/card';
 	import {
 		Activity, Server, HardDrive, MemoryStick, Wifi,
-		Play, Square, RotateCcw, Circle
+		Play, Square, RotateCcw, Circle, Loader2
 	} from 'lucide-svelte';
 	import { formatBytes } from '$lib/utils/utils';
 	import { io, type Socket } from 'socket.io-client';
@@ -94,27 +94,39 @@
 			</div>
 			<div class="flex items-center gap-2">
 				<button
-					class="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-40"
+					class="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
 					disabled={isRunning || isBusy}
 					onclick={startServer}
 				>
-					<Play class="h-3.5 w-3.5" />
+					{#if serverStatus === 'starting'}
+						<Loader2 class="h-3.5 w-3.5 animate-spin" />
+					{:else}
+						<Play class="h-3.5 w-3.5" />
+					{/if}
 					Start
 				</button>
 				<button
-					class="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-40"
+					class="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
 					disabled={!isRunning || isBusy}
 					onclick={restartServer}
 				>
-					<RotateCcw class="h-3.5 w-3.5" />
+					{#if serverStatus === 'restarting'}
+						<Loader2 class="h-3.5 w-3.5 animate-spin" />
+					{:else}
+						<RotateCcw class="h-3.5 w-3.5" />
+					{/if}
 					Restart
 				</button>
 				<button
-					class="flex items-center gap-1.5 rounded-md border border-red-400/30 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
+					class="flex items-center gap-1.5 rounded-md border border-red-400/30 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
 					disabled={!isRunning || isBusy}
 					onclick={stopServer}
 				>
-					<Square class="h-3.5 w-3.5" />
+					{#if serverStatus === 'stopping'}
+						<Loader2 class="h-3.5 w-3.5 animate-spin" />
+					{:else}
+						<Square class="h-3.5 w-3.5" />
+					{/if}
 					Stop
 				</button>
 			</div>

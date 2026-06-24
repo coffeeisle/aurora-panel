@@ -4,7 +4,7 @@ export interface Server {
 	slug: string;
 	type: 'minecraft' | 'steamcmd' | 'generic';
 	game: string;
-	status: 'installing' | 'installed' | 'suspended' | 'error';
+	status: 'installing' | 'installed' | 'suspended' | 'error' | 'running' | 'stopped' | 'starting' | 'stopping' | 'restarting';
 	gameVersion: string;
 	loader: string;
 	platform: string;

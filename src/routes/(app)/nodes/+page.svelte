@@ -2,10 +2,18 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { daemonStore, type DaemonStatus } from '$lib/stores/daemon';
 	import { toasts } from '$lib/stores/toast';
+	import { z } from 'zod';
 	import {
 		HardDrive, Wifi, WifiOff, Server, Cpu, MemoryStick, Activity, Plus,
 		Trash2, Edit, X, Circle, ExternalLink
 	} from 'lucide-svelte';
+
+	const nodeSchema = z.object({
+		name: z.string().trim().min(1, 'Name is required').max(64, 'Name too long'),
+		host: z.string().trim().min(1, 'Host/IP is required').max(255, 'Host too long'),
+		port: z.coerce.number().int().min(1, 'Port must be 1–65535').max(65535, 'Port must be 1–65535'),
+		token: z.string().max(512, 'Token too long').optional()
+	});
 
 	let showRegisterForm = $state(false);
 	let editingId = $state<string | null>(null);
@@ -14,6 +22,7 @@
 	let newPort = $state('8443');
 	let newToken = $state('');
 	let registering = $state(false);
+	let fieldErrors = $state<Record<string, string>>({});
 
 	function formatBytes(bytes: number): string {
 		const sizes = ['B', 'KB', 'MB', 'GB'];
@@ -42,26 +51,41 @@
 	}
 
 	async function registerNode() {
-		if (!newName.trim() || !newHost.trim()) {
-			toasts.error('Validation', 'Name and host are required');
+		fieldErrors = {};
+		const parsed = nodeSchema.safeParse({
+			name: newName,
+			host: newHost,
+			port: newPort || '0',
+			token: newToken || undefined
+		});
+		if (!parsed.success) {
+			const flat = parsed.error.flatten().fieldErrors;
+			fieldErrors = Object.fromEntries(
+				Object.entries(flat).map(([k, v]) => [k, v?.[0] || ''])
+			);
+			toasts.error('Validation failed', Object.values(fieldErrors).join(', '));
 			return;
 		}
 		registering = true;
 		try {
+			const { name, host, port, token } = parsed.data;
 			const res = await fetch('/api/nodes/register', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					id: editingId || newName.trim().toLowerCase().replace(/\s+/g, '-'),
-					name: newName.trim(),
-					host: newHost.trim(),
-					port: parseInt(newPort, 10) || 8443,
-					token: newToken.trim() || undefined
+					id: editingId || name.toLowerCase().replace(/\s+/g, '-'),
+					name,
+					host,
+					port,
+					token: token || undefined
 				})
 			});
-			if (!res.ok) throw new Error('Registration failed');
+			if (!res.ok) {
+				const errData = await res.json().catch(() => ({}));
+				throw new Error(errData.error || `Registration failed (${res.status})`);
+			}
 			const data = await res.json();
-			toasts.success('Node saved', data.message || `${newName} registered`);
+			toasts.success('Node saved', data.message || `${name} registered`);
 			resetForm();
 		} catch (e) {
 			toasts.error('Save failed', e instanceof Error ? e.message : 'Unknown error');
@@ -92,6 +116,7 @@
 		newHost = '';
 		newPort = '8443';
 		newToken = '';
+		fieldErrors = {};
 	}
 
 	const daemons = $derived(Array.from($daemonStore.values()).sort((a, b) => a.id.localeCompare(b.id)));
@@ -133,8 +158,9 @@
 						id="node-name"
 						bind:value={newName}
 						placeholder="My Server Node"
-						class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+						class="w-full rounded-md border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-1 {fieldErrors.name ? 'border-red-400 focus:border-red-400 focus:ring-red-400' : 'border-border focus:border-primary focus:ring-primary'}"
 					/>
+					{#if fieldErrors.name}<p class="mt-1 text-[10px] text-red-400">{fieldErrors.name}</p>{/if}
 				</div>
 				<div class="flex-1 min-w-[160px]">
 					<label for="node-host" class="mb-1 block text-xs text-muted-foreground">Host / IP</label>
@@ -142,8 +168,9 @@
 						id="node-host"
 						bind:value={newHost}
 						placeholder="192.168.1.100"
-						class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+						class="w-full rounded-md border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-1 {fieldErrors.host ? 'border-red-400 focus:border-red-400 focus:ring-red-400' : 'border-border focus:border-primary focus:ring-primary'}"
 					/>
+					{#if fieldErrors.host}<p class="mt-1 text-[10px] text-red-400">{fieldErrors.host}</p>{/if}
 				</div>
 				<div class="w-24">
 					<label for="node-port" class="mb-1 block text-xs text-muted-foreground">Port</label>
@@ -151,8 +178,9 @@
 						id="node-port"
 						bind:value={newPort}
 						placeholder="8443"
-						class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+						class="w-full rounded-md border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-1 {fieldErrors.port ? 'border-red-400 focus:border-red-400 focus:ring-red-400' : 'border-border focus:border-primary focus:ring-primary'}"
 					/>
+					{#if fieldErrors.port}<p class="mt-1 text-[10px] text-red-400">{fieldErrors.port}</p>{/if}
 				</div>
 				<div class="flex-1 min-w-[160px]">
 					<label for="node-token" class="mb-1 block text-xs text-muted-foreground">Token (optional)</label>
@@ -160,8 +188,9 @@
 						id="node-token"
 						bind:value={newToken}
 						placeholder="auth-token"
-						class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+						class="w-full rounded-md border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-1 {fieldErrors.token ? 'border-red-400 focus:border-red-400 focus:ring-red-400' : 'border-border focus:border-primary focus:ring-primary'}"
 					/>
+					{#if fieldErrors.token}<p class="mt-1 text-[10px] text-red-400">{fieldErrors.token}</p>{/if}
 				</div>
 				<div class="flex gap-2">
 					<button

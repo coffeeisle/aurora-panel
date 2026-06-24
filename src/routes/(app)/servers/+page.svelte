@@ -30,11 +30,11 @@
 								<Circle
 									class={cn(
 										'h-2.5 w-2.5',
-										srv.status === 'installed'
+										srv.status === 'installed' || srv.status === 'running'
 											? 'text-green-500 fill-green-500'
 											: srv.status === 'suspended'
 												? 'text-yellow-500 fill-yellow-500'
-												: srv.status === 'error'
+												: srv.status === 'error' || srv.status === 'stopped'
 													? 'text-red-500 fill-red-500'
 													: 'text-blue-500 fill-blue-500 animate-pulse'
 									)}
