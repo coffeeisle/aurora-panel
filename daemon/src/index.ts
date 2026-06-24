@@ -9,6 +9,7 @@ const DAEMON_NAME = process.env['DAEMON_NAME'] ?? DAEMON_ID;
 const DAEMON_VERSION = process.env['DAEMON_VERSION'] ?? '0.1.0';
 const DAEMON_TOKEN = jwt.sign({ id: DAEMON_ID, type: 'daemon' }, JWT_SECRET, { expiresIn: '24h' });
 const SERVERS_DIR = process.env['SERVERS_DIR'] ?? './servers';
+const DOCKER_NETWORK = process.env['DOCKER_NETWORK'] ?? 'aurora';
 
 interface ManagedServer {
 	id: string;
@@ -23,6 +24,103 @@ interface ManagedServer {
 	allocatedCpu: number;
 	consoleLines: string[];
 	consoleTimer: ReturnType<typeof setInterval> | null;
+	processType?: 'docker' | 'bare';
+	dockerImage?: string;
+}
+
+// ── Docker Management ──
+async function ensureDockerNetwork(): Promise<boolean> {
+	try {
+		const { exitCode } = await Bun.$`docker network inspect ${DOCKER_NETWORK}`.quiet();
+		if (exitCode !== 0) {
+			await Bun.$`docker network create ${DOCKER_NETWORK}`;
+			console.log(`[Docker] Created network '${DOCKER_NETWORK}'`);
+		}
+		return true;
+	} catch {
+		console.warn('[Docker] Not available — falling back to bare process mode');
+		return false;
+	}
+}
+
+function getContainerName(serverId: string): string {
+	return `aurora-${serverId}`;
+}
+
+async function dockerStartContainer(srv: ManagedServer): Promise<boolean> {
+	try {
+		const containerName = getContainerName(srv.id);
+		const image = srv.dockerImage || 'itzg/minecraft-server:latest';
+		const serverDir = `${SERVERS_DIR}/${srv.id}`;
+
+		const args = [
+			'run', '-d',
+			'--name', containerName,
+			'--network', DOCKER_NETWORK,
+			'-p', `${srv.port}:${srv.port}`,
+			'-e', `MEMORY=${srv.allocatedMemory}M`,
+			'-e', `TYPE=${srv.loader || 'VANILLA'}`,
+			'-e', `VERSION=${srv.gameVersion}`,
+			'-v', `${serverDir}:/data`,
+			'--memory', `${srv.allocatedMemory}m`,
+			'--cpus', String(Math.ceil(srv.allocatedCpu / 100)),
+			'--restart', 'no',
+			image
+		];
+
+		const { exitCode, stderr } = await Bun.$`docker ${args}`.quiet();
+		if (exitCode === 0) {
+			console.log(`[Docker] Started container ${containerName} for ${srv.name}`);
+			return true;
+		} else {
+			console.error(`[Docker] Failed to start ${containerName}:`, stderr.toString());
+			return false;
+		}
+	} catch (e) {
+		console.error('[Docker] Start error:', e);
+		return false;
+	}
+}
+
+async function dockerStopContainer(srv: ManagedServer): Promise<boolean> {
+	try {
+		const containerName = getContainerName(srv.id);
+		const { exitCode } = await Bun.$`docker stop ${containerName}`.quiet();
+		await Bun.$`docker rm ${containerName}`.quiet();
+		if (exitCode === 0) {
+			console.log(`[Docker] Stopped and removed container ${containerName}`);
+		}
+		return true;
+	} catch (e) {
+		console.error('[Docker] Stop error:', e);
+		return false;
+	}
+}
+
+async function dockerContainerStatus(srv: ManagedServer): Promise<string> {
+	try {
+		const containerName = getContainerName(srv.id);
+		const proc = Bun.$`docker inspect --format='{{.State.Status}}' ${containerName}`;
+		const text = await proc.text();
+		return text.trim();
+	} catch {
+		return 'not_found';
+	}
+}
+
+async function dockerExec(srv: ManagedServer, command: string): Promise<string> {
+	try {
+		const containerName = getContainerName(srv.id);
+		const proc = Bun.$`docker exec ${containerName} sh -c ${command}`;
+		const text = await proc.text();
+		return text.trim();
+	} catch {
+		return '';
+	}
+}
+
+function getDockerLogs(srv: ManagedServer): string[] {
+	return [`[Docker] Container '${getContainerName(srv.id)}' log output (mock)`];
 }
 
 const mockOutputs = [
@@ -50,31 +148,36 @@ const servers: ManagedServer[] = [
 		id: 'srv_01', name: 'Survival World', status: 'stopped',
 		gameVersion: '1.21.4', loader: 'Fabric', platform: 'fabric',
 		port: 25565, allocatedMemory: 4096, allocatedDisk: 20480, allocatedCpu: 200,
-		consoleLines: [], consoleTimer: null
+		consoleLines: [], consoleTimer: null,
+		processType: 'docker', dockerImage: 'itzg/minecraft-server:latest'
 	},
 	{
 		id: 'srv_02', name: 'Creative Build', status: 'stopped',
 		gameVersion: '1.21.4', loader: 'Paper', platform: 'paper',
 		port: 25566, allocatedMemory: 2048, allocatedDisk: 10240, allocatedCpu: 100,
-		consoleLines: [], consoleTimer: null
+		consoleLines: [], consoleTimer: null,
+		processType: 'docker', dockerImage: 'itzg/minecraft-server:latest'
 	},
 	{
 		id: 'srv_03', name: 'Modded Adventures', status: 'stopped',
 		gameVersion: '1.20.1', loader: 'Forge', platform: 'forge',
 		port: 25567, allocatedMemory: 8192, allocatedDisk: 40960, allocatedCpu: 300,
-		consoleLines: [], consoleTimer: null
+		consoleLines: [], consoleTimer: null,
+		processType: 'docker', dockerImage: 'itzg/minecraft-server:latest'
 	},
 	{
 		id: 'srv_04', name: 'MiniGames Network', status: 'stopped',
 		gameVersion: '1.21', loader: 'Paper', platform: 'paper',
 		port: 25568, allocatedMemory: 3072, allocatedDisk: 15360, allocatedCpu: 150,
-		consoleLines: [], consoleTimer: null
+		consoleLines: [], consoleTimer: null,
+		processType: 'docker', dockerImage: 'itzg/minecraft-server:latest'
 	},
 	{
 		id: 'srv_05', name: 'Palworld Server', status: 'stopped',
 		gameVersion: 'latest', loader: '', platform: 'steamcmd',
 		port: 8211, allocatedMemory: 8192, allocatedDisk: 30720, allocatedCpu: 200,
-		consoleLines: [], consoleTimer: null
+		consoleLines: [], consoleTimer: null,
+		processType: 'bare'
 	}
 ];
 
@@ -260,6 +363,8 @@ function handleCommand(srv: ManagedServer, command: string, socket: Socket) {
 async function main() {
 	console.log(`[Daemon ${DAEMON_ID}] Starting...`);
 
+	await ensureDockerNetwork();
+
 	const socket: Socket = createSocketClient(PANEL_URL, {
 		path: '/ws',
 		auth: { token: DAEMON_TOKEN, type: 'daemon', daemonId: DAEMON_ID },
@@ -280,7 +385,7 @@ async function main() {
 			...stats,
 			uptime: process.uptime(),
 			version: DAEMON_VERSION,
-			servers: servers.map(s => ({ id: s.id, name: s.name, status: s.status }))
+			servers: servers.map(s => ({ id: s.id, name: s.name, status: s.status, processType: s.processType || 'bare' }))
 		});
 	});
 
@@ -292,34 +397,93 @@ async function main() {
 		console.error(`[Daemon ${DAEMON_ID}] Connection error:`, err.message);
 	});
 
-	socket.on('server:start', (serverId: string) => {
+	socket.on('server:start', async (serverId: string) => {
 		const srv = getServer(serverId);
 		if (!srv) return;
 		console.log(`[Daemon ${DAEMON_ID}] Starting server ${srv.name}`);
-		startServerOutput(srv, socket);
-		socket.emit('server:status', { id: serverId, status: 'running' });
+
+		if (srv.processType === 'docker') {
+			const started = await dockerStartContainer(srv);
+			if (started) {
+				srv.status = 'running';
+				startServerOutput(srv, socket);
+				socket.emit('server:status', { id: serverId, status: 'running' });
+			} else {
+				srv.status = 'error';
+				socket.emit('server:status', { id: serverId, status: 'error' });
+			}
+		} else {
+			startServerOutput(srv, socket);
+			socket.emit('server:status', { id: serverId, status: 'running' });
+		}
 	});
 
-	socket.on('server:stop', (serverId: string) => {
+	socket.on('server:stop', async (serverId: string) => {
 		const srv = getServer(serverId);
 		if (!srv) return;
 		console.log(`[Daemon ${DAEMON_ID}] Stopping server ${srv.name}`);
+
+		if (srv.processType === 'docker') {
+			await dockerStopContainer(srv);
+		}
 		stopServerOutput(srv);
 		socket.emit('server:status', { id: serverId, status: 'stopped' });
 		srv.consoleLines.push('\x1b[31mWARN[0m] Server stopped');
 		socket.emit('console:output', { serverId, line: '\x1b[31mWARN[0m] Server stopped' });
 	});
 
-	socket.on('server:restart', (serverId: string) => {
+	socket.on('server:restart', async (serverId: string) => {
 		const srv = getServer(serverId);
 		if (!srv) return;
 		console.log(`[Daemon ${DAEMON_ID}] Restarting server ${srv.name}`);
+
+		if (srv.processType === 'docker') {
+			await dockerStopContainer(srv);
+		}
 		stopServerOutput(srv);
 		socket.emit('server:status', { id: serverId, status: 'restarting' });
-		setTimeout(() => {
+
+		setTimeout(async () => {
+			if (srv.processType === 'docker') {
+				await dockerStartContainer(srv);
+			}
 			startServerOutput(srv, socket);
 			socket.emit('server:status', { id: serverId, status: 'running' });
 		}, 1000);
+	});
+
+	socket.on('server:create', async (data: { id: string; name: string; port: number; allocatedMemory: number; allocatedDisk: number; allocatedCpu: number; gameVersion: string; loader: string; processType?: string; dockerImage?: string }) => {
+		const existing = getServer(data.id);
+		if (existing) {
+			console.log(`[Daemon ${DAEMON_ID}] Server ${data.id} already exists, skipping creation`);
+			return;
+		}
+		const srv: ManagedServer = {
+			id: data.id,
+			name: data.name,
+			status: 'stopped',
+			gameVersion: data.gameVersion || 'latest',
+			loader: data.loader || '',
+			platform: data.loader || '',
+			port: data.port || 25565,
+			allocatedMemory: data.allocatedMemory || 1024,
+			allocatedDisk: data.allocatedDisk || 10240,
+			allocatedCpu: data.allocatedCpu || 100,
+			consoleLines: [],
+			consoleTimer: null,
+			processType: (data.processType as 'docker' | 'bare') || 'docker',
+			dockerImage: data.dockerImage
+		};
+		servers.push(srv);
+		createServerDirs(data.id);
+		console.log(`[Daemon ${DAEMON_ID}] Created server ${srv.name} (${srv.id})`);
+
+		if (srv.processType === 'docker') {
+			const pulled = await Bun.$`docker pull ${srv.dockerImage || 'itzg/minecraft-server:latest'}`.quiet().then(() => true).catch(() => false);
+			if (pulled) console.log(`[Docker] Pulled image for ${srv.name}`);
+		}
+
+		socket.emit('server:created', { id: data.id, success: true });
 	});
 
 	socket.on('console:command', ({ serverId, command }: { serverId: string; command: string }) => {
@@ -332,6 +496,20 @@ async function main() {
 		const srv = getServer(serverId);
 		if (!srv) return;
 		socket.emit('console:history', srv.consoleLines);
+	});
+
+	socket.on('docker:exec', async ({ serverId, command }: { serverId: string; command: string }) => {
+		const srv = getServer(serverId);
+		if (!srv || srv.processType !== 'docker') return;
+		const result = await dockerExec(srv, command);
+		socket.emit('docker:exec:result', { serverId, result });
+	});
+
+	socket.on('docker:logs', async (serverId: string) => {
+		const srv = getServer(serverId);
+		if (!srv || srv.processType !== 'docker') return;
+		const logs = getDockerLogs(srv);
+		socket.emit('docker:logs:result', { serverId, logs });
 	});
 
 	Bun.serve({
@@ -356,8 +534,48 @@ async function main() {
 					return Response.json(servers.map(s => ({
 						id: s.id, name: s.name, status: s.status,
 						gameVersion: s.gameVersion, loader: s.loader, platform: s.platform, port: s.port,
-						allocatedMemory: s.allocatedMemory, allocatedDisk: s.allocatedDisk, allocatedCpu: s.allocatedCpu
+						allocatedMemory: s.allocatedMemory, allocatedDisk: s.allocatedDisk, allocatedCpu: s.allocatedCpu,
+						processType: s.processType || 'bare', dockerImage: s.dockerImage
 					})));
+				}
+
+				if (pathname === '/docker/info') {
+					const dockerAvailable = await ensureDockerNetwork().catch(() => false);
+					return Response.json({
+						available: dockerAvailable,
+						network: DOCKER_NETWORK,
+						containers: servers.filter(s => s.processType === 'docker').map(s => ({
+							id: s.id, name: s.name, container: getContainerName(s.id), status: s.status
+						}))
+					});
+				}
+
+				if (pathname === '/backup' && req.method === 'POST') {
+					const { serverId } = await req.json() as { serverId: string };
+					const srv = getServer(serverId);
+					if (!srv) return Response.json({ error: 'Server not found' }, { status: 404 });
+					const backupDir = `${SERVERS_DIR}/${srv.id}/backups`;
+					const backupName = `backup-${Date.now()}.tar.gz`;
+					await Bun.$`mkdir -p ${backupDir}`;
+					const proc = Bun.$`tar -czf ${backupDir}/${backupName} -C ${SERVERS_DIR}/${srv.id} .`;
+					const { exitCode } = await proc.quiet();
+					if (exitCode !== 0) return Response.json({ error: 'Backup failed' }, { status: 500 });
+					return Response.json({ success: true, name: backupName, path: `${backupDir}/${backupName}` });
+				}
+
+				if (pathname.startsWith('/backup/') && req.method === 'DELETE') {
+					const serverId = url.searchParams.get('server');
+					const fileName = pathname.replace('/backup/', '');
+					if (!serverId || !fileName) return Response.json({ error: 'Missing params' }, { status: 400 });
+					await Bun.$`rm -f ${SERVERS_DIR}/${serverId}/backups/${fileName}`;
+					return Response.json({ success: true });
+				}
+
+				if (pathname === '/backup/restore' && req.method === 'POST') {
+					const { serverId, fileName } = await req.json() as { serverId: string; fileName: string };
+					const backupPath = `${SERVERS_DIR}/${serverId}/backups/${fileName}`;
+					await Bun.$`tar -xzf ${backupPath} -C ${SERVERS_DIR}/${serverId}`;
+					return Response.json({ success: true, message: `Restored from ${fileName}` });
 				}
 
 				if (pathname.startsWith('/files/')) {

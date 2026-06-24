@@ -1,8 +1,6 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { servers } from '$lib/stores/servers';
-	import { daemonStore } from '$lib/stores/daemon';
 	import type { Server } from '$lib/types/server';
 	import { cn } from '$lib/utils/utils';
 	import { io, type Socket } from 'socket.io-client';
@@ -18,7 +16,8 @@
 		Clock,
 		Settings,
 		Circle,
-		ArrowLeft
+		ArrowLeft,
+		Loader2
 	} from 'lucide-svelte';
 
 	const serverTabs = [
@@ -37,8 +36,25 @@
 	let { children } = $props();
 
 	let socket: Socket | null = null;
+	let serversList = $state<Server[]>([]);
+	let loading = $state(true);
+
+	let server = $derived(serversList.find((s) => s.id === $page.params.id) ?? null);
 
 	onMount(() => {
+		fetch('/api/servers')
+			.then(async (res) => {
+				if (res.ok) {
+					serversList = await res.json();
+				}
+			})
+			.catch(() => {
+				// Silently fail
+			})
+			.finally(() => {
+				loading = false;
+			});
+
 		socket = io({
 			path: '/ws',
 			auth: { token: 'dev-token', type: 'browser' },
@@ -47,10 +63,9 @@
 
 		socket.on('server:status', (data: { id: string; status: string }) => {
 			const status = data.status as Server['status'];
-			servers.update((srvList) =>
-				srvList.map((s) => (s.id === data.id ? { ...s, status } : s))
+			serversList = serversList.map((s) =>
+				s.id === data.id ? { ...s, status } : s
 			);
-			daemonStore.updateServerStatus(data.id, status);
 		});
 
 		return () => {
@@ -58,8 +73,6 @@
 			socket = null;
 		};
 	});
-
-	let server = $derived($servers.find((s) => s.id === $page.params.id) ?? null);
 </script>
 
 <div class="flex h-full flex-col">
@@ -67,22 +80,26 @@
 		<a href="/servers" class="text-muted-foreground hover:text-foreground transition-colors">
 			<ArrowLeft class="h-4 w-4" />
 		</a>
-		<div class="flex items-center gap-2">
-			<Circle
-				class={cn(
-					'h-2.5 w-2.5',
-					server?.status === 'installed'
-						? 'text-green-500 fill-green-500'
-						: server?.status === 'suspended'
-							? 'text-yellow-500 fill-yellow-500'
-							: server?.status === 'error'
-								? 'text-red-500 fill-red-500'
-								: 'text-blue-500 fill-blue-500 animate-pulse'
-				)}
-			/>
-			<h2 class="text-sm font-semibold text-foreground">{server?.name ?? $page.params.id}</h2>
-			<span class="text-xs text-muted-foreground">({server?.game ?? 'Unknown'})</span>
-		</div>
+		{#if loading}
+			<Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
+		{:else}
+			<div class="flex items-center gap-2">
+				<Circle
+					class={cn(
+						'h-2.5 w-2.5',
+						server?.status === 'installed'
+							? 'text-green-500 fill-green-500'
+							: server?.status === 'suspended'
+								? 'text-yellow-500 fill-yellow-500'
+								: server?.status === 'error'
+									? 'text-red-500 fill-red-500'
+									: 'text-blue-500 fill-blue-500 animate-pulse'
+					)}
+				/>
+				<h2 class="text-sm font-semibold text-foreground">{server?.name ?? $page.params.id}</h2>
+				<span class="text-xs text-muted-foreground">({server?.game ?? 'Unknown'})</span>
+			</div>
+		{/if}
 	</div>
 
 	<div class="flex flex-1 overflow-hidden">

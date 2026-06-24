@@ -1,11 +1,13 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { daemonReadFile, daemonWriteFile, daemonDeleteEntry, daemonRenameEntry, daemonCreateEntry } from '$lib/server/daemon-client';
-import { getServerById } from '$lib/stores/servers';
+import { db } from '$lib/server/db';
+import { servers } from '$lib/server/db/schema';
+import { eq } from 'drizzle-orm';
 
 function getDaemonId(serverId: string): string | null {
-	const server = getServerById(serverId);
-	return server?.nodeName || 'node-01';
+	const server = db.select().from(servers).where(eq(servers.id, serverId)).get();
+	return server?.nodeId || 'node-01';
 }
 
 export const GET: RequestHandler = async ({ params, url }) => {

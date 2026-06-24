@@ -30,9 +30,9 @@ function mapServer(s: Record<string, unknown>) {
 		slug: s.slug,
 		type: s.type,
 		game: s.game,
-		gameVersion: s.gameVersion,
-		loader: s.loader,
-		platform: s.platform,
+		gameVersion: s.gameVersion as string,
+		loader: s.loader as string,
+		platform: s.platform as string,
 		status: s.status,
 		nodeName: s.nodeId,
 		allocatedMemory: s.allocatedMemory,
@@ -77,6 +77,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		nodeId: data.nodeId,
 		type: data.type,
 		game: data.game,
+		gameVersion: data.gameVersion,
+		loader: data.loader,
+		platform: data.platform,
 		status: 'installing' as const,
 		processType: data.processType,
 		dockerImage: data.dockerImage || null,
@@ -103,5 +106,29 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	const created = db.select().from(servers).where(eq(servers.id, serverId)).get();
 
-	return json(mapServer(created!), { status: 201 });
+	const srv = mapServer(created!);
+
+	const io = (await import('$lib/server/io')).getIO();
+	if (io) {
+		const daemonSockets = io.sockets.sockets;
+		for (const [, sock] of daemonSockets) {
+			if (sock.handshake.auth.type === 'daemon') {
+				sock.emit('server:create', {
+					id: srv.id,
+					name: srv.name,
+					port: srv.port,
+					status: srv.status,
+					gameVersion: srv.gameVersion,
+					loader: srv.loader,
+					allocatedMemory: srv.allocatedMemory,
+					allocatedDisk: srv.allocatedDisk,
+					allocatedCpu: srv.allocatedCpu,
+					processType: data.processType,
+					dockerImage: data.dockerImage
+				});
+			}
+		}
+	}
+
+	return json(srv, { status: 201 });
 };

@@ -1,17 +1,18 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { daemonListFiles } from '$lib/server/daemon-client';
-import { servers, getServerById } from '$lib/stores/servers';
-import { get } from 'svelte/store';
+import { db } from '$lib/server/db';
+import { servers } from '$lib/server/db/schema';
+import { eq } from 'drizzle-orm';
 
 export const GET: RequestHandler = async ({ params, url }) => {
 	const serverId = params.id;
 	const dir = url.searchParams.get('dir') || '/';
 
-	const server = getServerById(serverId);
+	const server = db.select().from(servers).where(eq(servers.id, serverId)).get();
 	if (!server) return json({ error: 'Server not found' }, { status: 404 });
 
-	const daemonId = server.nodeName || 'node-01';
+	const daemonId = server.nodeId || 'node-01';
 	try {
 		const res = await daemonListFiles(daemonId, serverId, dir);
 		if (!res.ok) {

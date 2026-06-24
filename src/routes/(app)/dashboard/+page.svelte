@@ -1,14 +1,41 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { onMount } from 'svelte';
 	import { Activity, Server, HardDrive, Users } from 'lucide-svelte';
 	import * as Card from '$lib/components/ui/card';
 
-	const stats = [
-		{ label: 'Total Servers', value: '0', icon: Server },
-		{ label: 'Nodes Online', value: '0', icon: HardDrive },
+	let totalServers = $state(0);
+	let nodesOnline = $state(0);
+	let loading = $state(true);
+
+	onMount(async () => {
+		try {
+			const [serversRes, nodesRes] = await Promise.all([
+				fetch('/api/servers'),
+				fetch('/api/nodes').catch(() => null)
+			]);
+			if (serversRes.ok) {
+				const data = await serversRes.json();
+				totalServers = Array.isArray(data) ? data.length : 0;
+			}
+			if (nodesRes && nodesRes.ok) {
+				const data = await nodesRes.json();
+				nodesOnline = Array.isArray(data)
+					? data.filter((n: { connected?: boolean }) => n.connected).length
+					: 0;
+			}
+		} catch {
+			// Keep defaults
+		} finally {
+			loading = false;
+		}
+	});
+
+	const stats = $derived([
+		{ label: 'Total Servers', value: String(totalServers), icon: Server },
+		{ label: 'Nodes Online', value: `${nodesOnline}`, icon: HardDrive },
 		{ label: 'Active Users', value: '0', icon: Users },
 		{ label: 'CPU Usage', value: '0%', icon: Activity }
-	];
+	]);
 </script>
 
 <div class="space-y-6">

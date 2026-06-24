@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
 	type FileEntry = {
 		name: string;
 		path: string;
@@ -23,6 +24,8 @@
 	let editing = $state(false);
 	let breadcrumbs = $state<string[]>(['/']);
 
+	const serverId = $derived($page.params.id);
+
 	onMount(() => {
 		loadDirectory('/');
 	});
@@ -35,12 +38,10 @@
 		fileContent = '';
 		editing = false;
 
-		const path = dir === '/' ? '' : dir;
-
 		breadcrumbs = ['/', ...dir.split('/').filter(Boolean)];
 
 		try {
-			const res = await fetch(`/api/servers/dev/files?dir=${encodeURIComponent(dir)}`);
+			const res = await fetch(`/api/servers/${serverId}/files?dir=${encodeURIComponent(dir)}`);
 			if (!res.ok) throw new Error('Failed to list files');
 			entries = await res.json();
 		} catch (e) {
@@ -59,7 +60,7 @@
 		selectedFile = filePath;
 		error = '';
 		try {
-			const res = await fetch(`/api/servers/dev/files/...?path=${encodeURIComponent(filePath)}`);
+			const res = await fetch(`/api/servers/${serverId}/files/${encodeURIComponent(filePath)}?path=${encodeURIComponent(filePath)}`);
 			if (!res.ok) throw new Error('Failed to read file');
 			const data = await res.json();
 			fileContent = data.content || '';
@@ -73,7 +74,7 @@
 	async function saveFile() {
 		if (!selectedFile) return;
 		try {
-			const res = await fetch(`/api/servers/dev/files/...?path=${encodeURIComponent(selectedFile)}`, {
+			const res = await fetch(`/api/servers/${serverId}/files/${encodeURIComponent(selectedFile)}?path=${encodeURIComponent(selectedFile)}`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ content: fileContent })
@@ -88,7 +89,7 @@
 	async function deleteEntry(filePath: string) {
 		if (!confirm(`Delete ${filePath}?`)) return;
 		try {
-			const res = await fetch(`/api/servers/dev/files/...?path=${encodeURIComponent(filePath)}`, {
+			const res = await fetch(`/api/servers/${serverId}/files/${encodeURIComponent(filePath)}?path=${encodeURIComponent(filePath)}`, {
 				method: 'DELETE'
 			});
 			if (!res.ok) throw new Error('Failed to delete');
@@ -106,7 +107,7 @@
 		const newName = prompt('New name:', filePath.split('/').pop()) ?? '';
 		if (!newName) return;
 		try {
-			const res = await fetch(`/api/servers/dev/files/...?path=${encodeURIComponent(filePath)}&action=rename`, {
+			const res = await fetch(`/api/servers/${serverId}/files/${encodeURIComponent(filePath)}?path=${encodeURIComponent(filePath)}&action=rename`, {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ name: newName })
@@ -123,7 +124,7 @@
 		if (!name) return;
 		try {
 			const action = type === 'directory' ? 'mkdir' : 'touch';
-			const res = await fetch(`/api/servers/dev/files/...?path=${encodeURIComponent(currentDir)}&action=${action}`, {
+			const res = await fetch(`/api/servers/${serverId}/files/${encodeURIComponent(currentDir)}?dir=${encodeURIComponent(currentDir)}&action=${action}`, {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ name })

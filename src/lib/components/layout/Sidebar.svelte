@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { cn } from '$lib/utils/utils';
 	import { page } from '$app/stores';
-	import { servers } from '$lib/stores/servers';
-	import { Server, LayoutDashboard, HardDrive, Settings, Users, ChevronDown, ChevronRight, Cable, Circle } from 'lucide-svelte';
+	import type { Server } from '$lib/types/server';
+	import { Server as ServerIcon, LayoutDashboard, HardDrive, Settings, Users, ChevronDown, ChevronRight, Circle, Plus } from 'lucide-svelte';
 
 	let serversExpanded = $state(true);
+	let serversList = $state<Server[]>([]);
 
 	const navItems = [
 		{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -20,6 +22,17 @@
 	function isServerActive(id: string) {
 		return $page.url.pathname.startsWith('/servers/' + id);
 	}
+
+	onMount(async () => {
+		try {
+			const res = await fetch('/api/servers');
+			if (res.ok) {
+				serversList = await res.json();
+			}
+		} catch {
+			// Ignore fetch errors in sidebar
+		}
+	});
 </script>
 
 <aside class="flex h-full w-64 flex-col border-r border-sidebar-border bg-sidebar">
@@ -62,7 +75,7 @@
 
 		{#if serversExpanded}
 			<div class="space-y-0.5">
-				{#each $servers as srv}
+				{#each serversList as srv}
 					<a
 						href="/servers/{srv.id}/overview"
 						class={cn(
@@ -87,6 +100,13 @@
 						<span class="truncate">{srv.name}</span>
 					</a>
 				{/each}
+				<a
+					href="/servers/new"
+					class="flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-sidebar-foreground/50 hover:bg-sidebar-muted hover:text-sidebar-foreground transition-colors"
+				>
+					<Plus class="h-3.5 w-3.5" />
+					<span>Create Server</span>
+				</a>
 			</div>
 		{/if}
 	</nav>

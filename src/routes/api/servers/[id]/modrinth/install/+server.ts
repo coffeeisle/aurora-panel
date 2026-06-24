@@ -1,14 +1,17 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { resolveInstall, downloadVersionFile, getTargetFolder, checkCompatibility } from '$lib/server/modrinth';
-import { getServerById } from '$lib/stores/servers';
+import { db } from '$lib/server/db';
+import { servers } from '$lib/server/db/schema';
+import { eq } from 'drizzle-orm';
 
 export const POST: RequestHandler = async ({ params, request }) => {
 	const serverId = params.id;
-	const server = getServerById(serverId);
-	if (!server) {
+	const row = db.select().from(servers).where(eq(servers.id, serverId)).get();
+	if (!row) {
 		return json({ success: false, error: 'Server not found' }, { status: 404 });
 	}
+	const server = { gameVersion: row.gameVersion, loader: row.loader, platform: row.platform };
 
 	const body = await request.json();
 	const { projectId, versionId, projectType, allowIncompatible } = body as {

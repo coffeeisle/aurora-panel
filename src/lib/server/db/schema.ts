@@ -22,6 +22,9 @@ export const servers = sqliteTable('servers', {
 	nodeId: text('node_id').notNull(),
 	type: text('type', { enum: ['minecraft', 'steamcmd', 'generic'] }).notNull(),
 	game: text('game').notNull(),
+	gameVersion: text('game_version').notNull().default('latest'),
+	loader: text('loader').notNull().default(''),
+	platform: text('platform').notNull().default(''),
 	status: text('status', {
 		enum: ['installing', 'installed', 'suspended', 'error']
 	})

@@ -21,7 +21,7 @@
 	onMount(() => {
 		socket = io({
 			path: '/ws',
-			auth: { token: 'dev-token', type: 'browser' },
+			auth: { token: 'dev-token', type: 'dev' },
 			transports: ['websocket', 'polling']
 		});
 

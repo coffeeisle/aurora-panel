@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { servers } from '$lib/stores/servers';
+	import type { Server as ServerType } from '$lib/types/server';
 	import { toasts } from '$lib/stores/toast';
 	import * as Card from '$lib/components/ui/card';
 	import {
-		Activity, Server, HardDrive, MemoryStick, Wifi,
+		Activity, Server as ServerIcon, HardDrive, MemoryStick, Wifi,
 		Play, Square, RotateCcw, Circle, Loader2
 	} from 'lucide-svelte';
 	import { formatBytes } from '$lib/utils/utils';
@@ -14,18 +14,29 @@
 	let socket: Socket | null = null;
 	let connected = $state(false);
 	let serverStatus = $state<string>('stopped');
+	let server = $state<ServerType | null>(null);
+	let loading = $state(true);
 
 	const serverId = $derived($page.params.id);
-	const server = $derived($servers.find((s) => s.id === serverId));
-
-	$effect(() => {
-		if (server) serverStatus = server.status === 'installed' ? 'running' : 'stopped';
-	});
 
 	onMount(() => {
+		fetch(`/api/servers/${serverId}`)
+			.then(async (res) => {
+				if (!res.ok) throw new Error('Failed to load server');
+				const srv: ServerType = await res.json();
+				server = srv;
+				serverStatus = srv.status === 'installed' ? 'running' : 'stopped';
+			})
+			.catch((e) => {
+				toasts.error('Failed to load server', e instanceof Error ? e.message : 'Unknown error');
+			})
+			.finally(() => {
+				loading = false;
+			});
+
 		socket = io({
 			path: '/ws',
-			auth: { token: 'dev-token', type: 'browser' },
+			auth: { token: 'dev-token', type: 'dev' },
 			transports: ['websocket', 'polling']
 		});
 
@@ -82,7 +93,15 @@
 	);
 </script>
 
-{#if server}
+{#if loading}
+	<div class="flex items-center justify-center py-20">
+		<Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
+	</div>
+{:else if !server}
+	<div class="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
+		Server not found.
+	</div>
+{:else}
 	<div class="space-y-6">
 		<div class="flex items-center justify-between rounded-lg border border-border bg-card p-4">
 			<div class="flex items-center gap-3">
