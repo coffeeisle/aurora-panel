@@ -25,6 +25,21 @@ export interface ModrinthSearchResult {
 	limit: number;
 }
 
+export interface ModrinthVersionFile {
+	url: string;
+	filename: string;
+	primary: boolean;
+	size: number;
+	hashes: { sha512: string; sha1: string };
+}
+
+export interface ModrinthVersionDependency {
+	version_id: string | null;
+	project_id: string;
+	file_name: string | null;
+	dependency_type: 'required' | 'optional' | 'incompatible' | 'embedded';
+}
+
 export interface ModrinthVersion {
 	id: string;
 	project_id: string;
@@ -36,13 +51,8 @@ export interface ModrinthVersion {
 	date_published: string;
 	downloads: number;
 	changelog: string;
-	files: {
-		url: string;
-		filename: string;
-		primary: boolean;
-		size: number;
-		hashes: { sha512: string; sha1: string };
-	}[];
+	files: ModrinthVersionFile[];
+	dependencies: ModrinthVersionDependency[];
 }
 
 export interface ModrinthSearchFilters {

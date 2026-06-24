@@ -1,4 +1,4 @@
-import type { ModrinthSearchResult, ModrinthVersion } from '$lib/types/modrinth';
+import type { ModrinthSearchResult, ModrinthVersion, ModrinthVersionFile } from '$lib/types/modrinth';
 
 const BASE = 'https://api.modrinth.com/v2';
 
@@ -86,4 +86,88 @@ export async function getProject(projectId: string) {
 	});
 	if (!res.ok) throw new Error(`Modrinth API error: ${res.status}`);
 	return res.json();
+}
+
+export async function getVersion(versionId: string): Promise<ModrinthVersion> {
+	const res = await fetch(`${BASE}/version/${versionId}`, {
+		headers: { 'User-Agent': 'AuroraPanel/0.1' }
+	});
+	if (!res.ok) throw new Error(`Modrinth API error: ${res.status}`);
+	return res.json() as Promise<ModrinthVersion>;
+}
+
+export interface ResolvedInstall {
+	version: ModrinthVersion;
+	file: ModrinthVersionFile;
+	dependencies: ResolvedInstall[];
+}
+
+export async function resolveInstall(
+	projectId: string,
+	opts?: { gameVersions?: string[]; loaders?: string[] }
+): Promise<ResolvedInstall> {
+	const versions = await getProjectVersions(projectId, opts?.gameVersions, opts?.loaders);
+	if (versions.length === 0) {
+		throw new Error(`No compatible versions found for project ${projectId}`);
+	}
+	const version = versions.find((v) => v.featured) ?? versions[0]!;
+	const primaryFile = version.files.find((f) => f.primary) ?? version.files[0];
+	if (!primaryFile) throw new Error(`No downloadable files for version ${version.id}`);
+
+	const dependencies: ResolvedInstall[] = [];
+	for (const dep of version.dependencies) {
+		if (dep.dependency_type === 'required' && dep.project_id) {
+			try {
+				const resolved = await resolveInstall(dep.project_id, opts);
+				dependencies.push(resolved);
+			} catch {
+				// Skip unresolvable dependencies
+			}
+		}
+	}
+
+	return { version, file: primaryFile, dependencies };
+}
+
+export async function downloadVersionFile(fileUrl: string): Promise<ArrayBuffer> {
+	const res = await fetch(fileUrl, {
+		headers: { 'User-Agent': 'AuroraPanel/0.1' }
+	});
+	if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+	return res.arrayBuffer();
+}
+
+export function getTargetFolder(projectType: string): string {
+	switch (projectType) {
+		case 'mod': return 'mods';
+		case 'plugin': return 'plugins';
+		case 'datapack': return 'world/datapacks';
+		case 'modpack': return '';
+		default: return 'mods';
+	}
+}
+
+export function checkCompatibility(
+	version: ModrinthVersion,
+	serverGameVersion: string,
+	serverLoader: string
+): { compatible: boolean; reasons: string[] } {
+	const reasons: string[] = [];
+
+	const versionMatch = version.game_versions.some(
+		(v) => v === serverGameVersion || serverGameVersion.startsWith(v.split('.')[0]!)
+	);
+	if (!versionMatch) {
+		reasons.push(`Game version mismatch: server is ${serverGameVersion}, mod supports ${version.game_versions.join(', ')}`);
+	}
+
+	const loaderKey = serverLoader.toLowerCase();
+	const loaderMatch = version.loaders.some(
+		(l) => l.toLowerCase() === loaderKey
+	);
+	if (!loaderMatch) {
+		reasons.push(`Loader mismatch: server is ${serverLoader}, mod supports ${version.loaders.join(', ')}`);
+	}
+
+	return { compatible: versionMatch && loaderMatch, reasons };
 }
