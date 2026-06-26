@@ -2,7 +2,7 @@
 set -euo pipefail
 
 AURORA_VERSION="0.1.0"
-AURORA_REPO="https://github.com/your-org/aurora-panel.git"
+AURORA_REPO="https://github.com/coffeeisle/aurora-panel.git"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 info()  { echo -e "${BLUE}[INFO]${NC} $1"; }

@@ -1,42 +1,101 @@
-# sv
+# Aurora Panel
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+A modern, self-hosted game server management panel with deep Modrinth integration. Lightweight alternative to MCSManager and Pelican Panel.
 
-## Creating a project
+## Features
 
-If you're seeing this, you've probably already done this step. Congrats!
+- **10 Minecraft platforms** — Vanilla, Paper, Purpur, Fabric, Forge, NeoForge, Quilt, Spigot, Folia, Bukkit
+- **Modrinth integration** — Search, install, update, and remove mods/plugins/modpacks/datapacks
+- **Multi-node** — One panel manages multiple daemon hosts
+- **Real-time console** — WebSocket streaming with command input
+- **File manager** — Browse, edit, upload, and delete server files
+- **Backup system** — On-demand and scheduled backups
+- **Scheduler** — Cron and interval-based automation (backups, restarts, commands)
+- **Docker-first** — Containerized servers with resource limits, optional bare-metal
+- **RBAC** — Role-based access control with granular permissions
+- **Modern UI** — SvelteKit 5 + Tailwind CSS 4 + shadcn-svelte
 
-```sh
-# create a new project
-npx sv create my-app
+## Quick Start
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/coffeeisle/aurora-panel/main/install.sh | bash
 ```
 
-To recreate this project with the same configuration:
+The interactive installer will:
+1. Check prerequisites (Docker, RAM ≥4GB, disk ≥20GB, ports)
+2. Let you choose Panel + Daemon, Panel only, or Daemon only
+3. Clone the repo and generate secure secrets
+4. Build and start Docker containers
+5. Wait for the panel to be ready
 
-```sh
-# recreate this project
-bun x sv@0.16.1 create --template minimal --types ts --install bun .
+Then open `http://your-server:3000/register` to create your admin account.
+
+## Management CLI
+
+```bash
+# Install system-wide
+sudo ./aurora.sh install
+
+# Then use from anywhere:
+aurora status
+aurora logs panel
+aurora update
 ```
 
-## Developing
+## Manual Setup
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+```bash
+git clone https://github.com/coffeeisle/aurora-panel.git
+cd aurora-panel
+cp .env.example .env
+# Edit .env — set AUTH_SECRET and DAEMON_JWT_SECRET
+docker compose up -d
 ```
 
-## Building
+See [DEPLOYMENT.md](DEPLOYMENT.md) for full documentation.
 
-To create a production version of your app:
+## Architecture
 
-```sh
-npm run build
+```
+                      Internet
+                          |
+                     [Caddy:443] (optional)
+                          |
+                   [Panel:3000]
+                      /       \
+              [Daemon:8443]  [Postgres:5432] (optional)
+                    |
+          [Docker containers]
 ```
 
-You can preview the production build with `npm run preview`.
+- **Panel** — SvelteKit app: UI + API + orchestration
+- **Daemon** — Per-host service: manages Docker containers, file system, backups
+- **Communication** — JWT-authenticated Socket.IO + REST; no direct browser-to-daemon
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+## Documentation
+
+- [Deployment Guide](DEPLOYMENT.md) — Full setup, configuration, troubleshooting
+- [System Prompt](SYSTEM-PROMPT-AURORA.md) — Technical architecture and conventions
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | SvelteKit 5, TypeScript, Tailwind CSS 4, shadcn-svelte |
+| Database | SQLite (default), PostgreSQL (optional) |
+| Real-time | Socket.IO |
+| Container | Docker via dockerode |
+| Auth | Lucia Auth, JWT |
+
+## Development
+
+```bash
+bun install
+bun run dev        # Dev server on :5173
+bun run check      # Type checking
+bun run build      # Production build
+```
+
+## License
+
+MIT
