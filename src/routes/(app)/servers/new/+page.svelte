@@ -38,7 +38,14 @@
 		]
 	};
 
-	const versions = ['1.21.4', '1.21.3', '1.21', '1.20.6', '1.20.4', '1.20.1', '1.19.4', '1.19.2', '1.18.2', '1.17.1', '1.16.5'];
+	const staticVersions = ['1.21.4', '1.21.3', '1.21', '1.20.6', '1.20.4', '1.20.1', '1.19.4', '1.19.2', '1.18.2', '1.17.1', '1.16.5'];
+	let eggVersions = $state<{ id: string; name: string; version: string; releaseType: string; isLatest?: boolean; isRecommended?: boolean; build?: number }[]>([]);
+	let refreshingVersions = $state(false);
+
+	let versions = $derived(eggVersions.length > 0
+		? eggVersions.map(v => ({ value: v.version, label: v.name }))
+		: staticVersions.map(v => ({ value: v, label: v }))
+	);
 	const gameTypeMap: Record<string, string> = {
 		minecraft: 'minecraft', palworld: 'steamcmd', valheim: 'steamcmd',
 		satisfactory: 'steamcmd', terraria: 'generic', enshrouded: 'steamcmd'
@@ -188,9 +195,39 @@
 		} finally { creating = false; }
 	}
 
-	function selectSoftware(sw: Software) {
+	function pickDefaultVersion() {
+		const latest = eggVersions.find(v => v.isRecommended || v.isLatest) || eggVersions[0];
+		if (latest) version = latest.version;
+	}
+
+	async function loadVersions(sw: Software, forceRefresh = false) {
+		if (!node) return;
+		try {
+			const url = forceRefresh ? `/api/eggs/${sw.id}?refresh=1` : `/api/eggs/${sw.id}`;
+			const res = await fetch(url);
+			if (res.ok) {
+				const data = await res.json();
+				if (Array.isArray(data) && data.length > 0) {
+					eggVersions = data;
+					pickDefaultVersion();
+				}
+			}
+		} catch {}
+	}
+
+	async function refreshVersions() {
+		if (!software) return;
+		refreshingVersions = true;
+		await loadVersions(software, true);
+		refreshingVersions = false;
+		toasts.success('Version cache refreshed');
+	}
+
+	async function selectSoftware(sw: Software) {
 		software = sw;
-		if (sw.id !== 'vanilla' && sw.id !== 'bukkit') version = '1.21.4';
+		version = '1.21.4';
+		eggVersions = [];
+		await loadVersions(sw);
 	}
 </script>
 
@@ -315,14 +352,24 @@
 
 				{#if game === 'minecraft'}
 					<div class="space-y-2">
-						<label for="srv-version" class="text-xs font-medium text-foreground">Game Version</label>
+						<div class="flex items-center justify-between">
+							<label for="srv-version" class="text-xs font-medium text-foreground">Game Version</label>
+							<button
+								class="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+								disabled={refreshingVersions || !software}
+								onclick={refreshVersions}
+							>
+								<Loader2 class="h-3 w-3 {refreshingVersions ? 'animate-spin' : ''}" />
+								Refresh
+							</button>
+						</div>
 						<select
 							id="srv-version"
 							bind:value={version}
 							class="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
 						>
 							{#each versions as v}
-								<option value={v}>{v}</option>
+								<option value={v.value}>{v.label}</option>
 							{/each}
 						</select>
 					</div>

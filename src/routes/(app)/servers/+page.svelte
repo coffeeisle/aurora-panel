@@ -219,19 +219,28 @@
 </div>
 
 {#if showDelete}
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-		onclick={() => showDelete = null}
-		onkeydown={(e) => e.key === 'Escape' && (showDelete = null)}
-		role="presentation"
-		tabindex="0"
-	>
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="presentation">
+		<button
+			type="button"
+			class="fixed inset-0 z-50 cursor-default"
+			onclick={() => showDelete = null}
+			onkeydown={(e) => e.key === 'Escape' && (showDelete = null)}
+			aria-label="Close delete dialog"
+		></button>
 		<!-- svelte-ignore a11y_no_static_element_interactions a11y_interactive_supports_focus -->
-		<div class="w-80 rounded-xl border border-border bg-card p-6 shadow-2xl" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+		<div
+			class="relative z-10 w-80 rounded-xl border border-border bg-card p-6 shadow-2xl"
+			role="dialog"
+			tabindex="0"
+			onclick={(e) => e.stopPropagation()}
+		>
 			<h3 class="text-base font-semibold text-foreground">Delete Server</h3>
 			<p class="mt-2 text-sm text-muted-foreground">This will permanently delete this server and all its data.</p>
 			<div class="mt-4 flex items-center justify-end gap-2">
-				<button class="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors" onclick={() => showDelete = null}>
+				<button
+					class="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+					onclick={() => showDelete = null}
+				>
 					Cancel
 				</button>
 				<button
@@ -246,5 +255,5 @@
 				</button>
 			</div>
 		</div>
-	</button>
+	</div>
 {/if}

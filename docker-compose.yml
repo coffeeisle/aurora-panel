@@ -1,39 +1,111 @@
-version: '3.8'
-
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: aurora
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: aurora
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aurora"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - with-postgres
+    networks:
+      - aurora
+
   panel:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "${PANEL_PORT:-3000}:3000"
     volumes:
-      - ./data:/app/data
-      - ./servers:/app/servers
+      - panel-data:/app/data
+      - server-data:/app/servers
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=file:./data/aurora.db
-      - AUTH_SECRET=${AUTH_SECRET}
-      - DAEMON_JWT_SECRET=${DAEMON_JWT_SECRET}
-      - PUBLIC_APP_URL=https://panel.example.com
+      - DATABASE_URL=${DATABASE_URL:-file:./data/aurora.db}
+      - AUTH_SECRET=${AUTH_SECRET:?AUTH_SECRET is required}
+      - DAEMON_JWT_SECRET=${DAEMON_JWT_SECRET:?DAEMON_JWT_SECRET is required}
+      - PUBLIC_APP_URL=${PUBLIC_APP_URL:-https://panel.example.com}
       - PORT=3000
+      - BODY_SIZE_LIMIT=Infinity
     restart: unless-stopped
+    stop_grace_period: 30s
+    user: "1000:1000"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:3000/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - aurora
 
   daemon:
     build:
       context: ./daemon
       dockerfile: Dockerfile
     ports:
-      - "8443:8443"
+      - "${DAEMON_PORT:-8443}:8443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./servers:/servers
-      - ./data/daemon:/data
+      - server-data:/servers
+      - daemon-data:/data
     environment:
       - NODE_ENV=production
       - DAEMON_PORT=8443
-      - PANEL_URL=https://panel:3000
-      - DAEMON_JWT_SECRET=${DAEMON_JWT_SECRET}
+      - PANEL_URL=${PANEL_URL:-http://panel:3000}
+      - DAEMON_JWT_SECRET=${DAEMON_JWT_SECRET:?DAEMON_JWT_SECRET is required}
+      - DAEMON_ID=${DAEMON_ID:-node-01}
+      - DAEMON_NAME=${DAEMON_NAME:-Primary Node}
+      - SERVERS_DIR=/servers
+      - DATA_DIR=/data
+      - DOCKER_NETWORK=aurora
+      - AUTO_RESTART=true
+      - MAX_CRASH_RESTARTS=3
     restart: unless-stopped
+    stop_grace_period: 15s
+    depends_on:
+      panel:
+        condition: service_started
+    user: "1000:1000"
+    networks:
+      - aurora
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    environment:
+      - DOMAIN=${DOMAIN:-panel.example.com}
+      - PANEL_PORT=3000
+    restart: unless-stopped
+    profiles:
+      - with-caddy
     depends_on:
       - panel
+    networks:
+      - aurora
+
+volumes:
+  pgdata:
+  panel-data:
+  server-data:
+  daemon-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  aurora:
+    name: aurora
+    driver: bridge

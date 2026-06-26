@@ -1,403 +1,223 @@
 import { io as createSocketClient, type Socket } from 'socket.io-client';
 import jwt from 'jsonwebtoken';
-import Docker from 'dockerode';
+import type { ManagedServer, SystemStats } from './types';
+import { ensureDockerNetwork, getContainerName, getContainerState, startContainer, stopContainer, restartContainer, executeCommand, getContainerLogs, streamContainerLogs, sendStdin, getContainerStats } from './container';
+import { listFiles, readFile, writeFile_, deleteEntry, renameEntry, createEntry, createServerDirectory, ensureEula, getServerDirectorySize, readBinaryFile, writeBinaryFile, copyFile } from './files';
+import { getSystemStats } from './metrics';
+import { getEgg, getEggForPlatform } from './eggs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { getHostInfo } from './metrics';
 
+// ── Config ──
 const JWT_SECRET = process.env['DAEMON_JWT_SECRET'] ?? 'dev-secret';
 const PANEL_URL = process.env['PANEL_URL'] ?? 'http://localhost:5173';
 const DAEMON_PORT = parseInt(process.env['DAEMON_PORT'] ?? '8443', 10);
 const DAEMON_ID = process.env['DAEMON_ID'] ?? 'node-01';
 const DAEMON_NAME = process.env['DAEMON_NAME'] ?? DAEMON_ID;
-const DAEMON_VERSION = process.env['DAEMON_VERSION'] ?? '0.1.0';
-const DAEMON_TOKEN = jwt.sign({ id: DAEMON_ID, type: 'daemon' }, JWT_SECRET, { expiresIn: '24h' });
+const DAEMON_VERSION = process.env['DAEMON_VERSION'] ?? '0.2.0';
 const SERVERS_DIR = process.env['SERVERS_DIR'] ?? './servers';
+const DATA_DIR = process.env['DATA_DIR'] ?? './data';
 const DOCKER_NETWORK = process.env['DOCKER_NETWORK'] ?? 'aurora';
+const AUTO_RESTART = process.env['AUTO_RESTART'] !== 'false';
+const MAX_CRASH_RESTARTS = parseInt(process.env['MAX_CRASH_RESTARTS'] ?? '3', 10);
 
-interface ManagedServer {
-	id: string;
-	name: string;
-	status: 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
-	gameVersion: string;
-	loader: string;
-	platform: string;
-	port: number;
-	allocatedMemory: number;
-	allocatedDisk: number;
-	allocatedCpu: number;
-	consoleLines: string[];
-	consoleTimer: ReturnType<typeof setInterval> | null;
-	processType?: 'docker' | 'bare';
-	dockerImage?: string;
-}
+const DAEMON_TOKEN = jwt.sign({ id: DAEMON_ID, type: 'daemon' }, JWT_SECRET, { expiresIn: '24h' });
 
-// ── Docker Management (dockerode) ──
-const docker = new Docker();
+// ── State ──
+const servers = new Map<string, ManagedServer>();
+const logStreamers = new Map<string, () => void>();
+let statsInterval: ReturnType<typeof setInterval> | null = null;
+let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
 
-async function ensureDockerNetwork(): Promise<boolean> {
+// ── State Persistence ──
+const stateFile = join(DATA_DIR, 'daemon-state.json');
+
+function loadState(): void {
 	try {
-		const networks = await docker.listNetworks();
-		const exists = networks.some(n => n.Name === DOCKER_NETWORK);
-		if (!exists) {
-			await docker.createNetwork({ Name: DOCKER_NETWORK });
-			console.log(`[Docker] Created network '${DOCKER_NETWORK}'`);
+		if (existsSync(stateFile)) {
+			const data = JSON.parse(readFileSync(stateFile, 'utf-8')) as ManagedServer[];
+			for (const s of data) {
+				s.status = 'stopped';
+				s.crashCount = 0;
+				s.consoleLines = [];
+				servers.set(s.id, s);
+			}
+			console.log(`[State] Loaded ${servers.size} servers from state file`);
 		}
-		return true;
-	} catch {
-		console.warn('[Docker] Not available — falling back to bare process mode');
-		return false;
-	}
-}
-
-function getContainerName(serverId: string): string {
-	return `aurora-${serverId}`;
-}
-
-async function dockerStartContainer(srv: ManagedServer): Promise<boolean> {
-	try {
-		const containerName = getContainerName(srv.id);
-		const image = srv.dockerImage || 'itzg/minecraft-server:latest';
-		const serverDir = `${SERVERS_DIR}/${srv.id}`;
-
-		const existing = await docker.getContainer(containerName).inspect().catch(() => null);
-		if (existing && existing.State.Status === 'running') {
-			console.log(`[Docker] Container ${containerName} already running`);
-			return true;
-		}
-		if (existing) {
-			await docker.getContainer(containerName).remove({ force: true }).catch(() => {});
-		}
-
-		await docker.pull(image);
-		const stream = await docker.createContainer({
-			Image: image,
-			name: containerName,
-			Hostname: srv.id,
-			ExposedPorts: { [`${srv.port}/tcp`]: {} },
-			Env: [
-				`MEMORY=${srv.allocatedMemory}M`,
-				`TYPE=${srv.loader?.toUpperCase() || 'VANILLA'}`,
-				`VERSION=${srv.gameVersion}`,
-			],
-			HostConfig: {
-				NetworkMode: DOCKER_NETWORK,
-				PortBindings: { [`${srv.port}/tcp`]: [{ HostPort: String(srv.port) }] },
-				Binds: [`${serverDir}:/data`],
-				Memory: srv.allocatedMemory * 1024 * 1024,
-				NanoCpus: Math.ceil(srv.allocatedCpu / 100) * 1e9,
-				RestartPolicy: { Name: 'no' }
-			},
-		});
-		await stream.start();
-		console.log(`[Docker] Started container ${containerName} for ${srv.name}`);
-		return true;
 	} catch (e) {
-		console.error('[Docker] Start error:', e);
-		return false;
+		console.warn('[State] Could not load state:', e);
 	}
 }
 
-async function dockerStopContainer(srv: ManagedServer): Promise<boolean> {
+function saveState(): void {
 	try {
-		const containerName = getContainerName(srv.id);
-		const container = docker.getContainer(containerName);
-		await container.stop().catch(() => {});
-		await container.remove({ force: true }).catch(() => {});
-		console.log(`[Docker] Stopped and removed container ${containerName}`);
-		return true;
+		if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+		const data = Array.from(servers.values()).map(({ consoleLines, ...rest }) => rest);
+		writeFileSync(stateFile, JSON.stringify(data, null, 2));
 	} catch (e) {
-		console.error('[Docker] Stop error:', e);
-		return false;
+		console.error('[State] Failed to save state:', e);
 	}
 }
 
-async function dockerContainerStatus(srv: ManagedServer): Promise<string> {
-	try {
-		const info = await docker.getContainer(getContainerName(srv.id)).inspect();
-		return info.State.Status;
-	} catch {
-		return 'not_found';
-	}
-}
+// ── Server Management ──
 
-async function dockerExec(srv: ManagedServer, command: string): Promise<string> {
-	try {
-		const exec = await docker.getContainer(getContainerName(srv.id)).exec({
-			Cmd: ['sh', '-c', command],
-			AttachStdout: true,
-			AttachStderr: true
-		});
-		const stream = await exec.start({ Detach: false, Tty: false });
-		return new Promise((resolve, reject) => {
-			let output = '';
-			stream.on('data', (chunk: Buffer) => { output += chunk.toString(); });
-			stream.on('end', () => resolve(output.trim()));
-			stream.on('error', reject);
-		});
-	} catch {
-		return '';
-	}
-}
+function getOrCreateServer(id: string, data?: Partial<ManagedServer>): ManagedServer | undefined {
+	if (servers.has(id)) return servers.get(id);
+	if (!data) return undefined;
 
-async function getDockerLogs(srv: ManagedServer): Promise<string[]> {
-	try {
-		const container = docker.getContainer(getContainerName(srv.id));
-		const logs = await container.logs({ stdout: true, stderr: true, tail: 50 });
-		return logs.toString().split('\n').filter(Boolean);
-	} catch {
-		return [`[Docker] No logs available for ${getContainerName(srv.id)}`];
-	}
-}
-
-async function dockerPullImage(image: string): Promise<boolean> {
-	try {
-		await docker.pull(image);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-const mockOutputs = [
-	'[32mINFO[0m] Starting Minecraft server on *:25565',
-	'[32mINFO[0m] Loading properties',
-	'[32mINFO[0m] Default game type: SURVIVAL',
-	'[32mINFO[0m] Preparing spawn area: 0%',
-	'[32mINFO[0m] Preparing spawn area: 25%',
-	'[32mINFO[0m] Preparing spawn area: 50%',
-	'[32mINFO[0m] Preparing spawn area: 75%',
-	'[32mINFO[0m] Preparing spawn area: 100%',
-	'[32mINFO[0m] Done (1.234s)! For help, type "help"',
-	'[32mINFO[0m] <Steve> Hello everyone!',
-	'[32mINFO[0m] <Alex> Welcome to the server!',
-	'[33mWARN[0m] Can\'t keep up! Is the server overloaded?',
-	'[32mINFO[0m] Player Steve joined the game',
-	'[32mINFO[0m] Player Alex joined the game',
-	'[32mINFO[0m] Autosave started',
-	"[32mINFO[0m] Saving chunks for level 'Server Level'/minecraft:overworld",
-	'[32mINFO[0m] Autosave finished',
-];
-
-const servers: ManagedServer[] = [
-	{
-		id: 'srv_01', name: 'Survival World', status: 'stopped',
-		gameVersion: '1.21.4', loader: 'Fabric', platform: 'fabric',
-		port: 25565, allocatedMemory: 4096, allocatedDisk: 20480, allocatedCpu: 200,
-		consoleLines: [], consoleTimer: null,
-		processType: 'docker', dockerImage: 'itzg/minecraft-server:latest'
-	},
-	{
-		id: 'srv_02', name: 'Creative Build', status: 'stopped',
-		gameVersion: '1.21.4', loader: 'Paper', platform: 'paper',
-		port: 25566, allocatedMemory: 2048, allocatedDisk: 10240, allocatedCpu: 100,
-		consoleLines: [], consoleTimer: null,
-		processType: 'docker', dockerImage: 'itzg/minecraft-server:latest'
-	},
-	{
-		id: 'srv_03', name: 'Modded Adventures', status: 'stopped',
-		gameVersion: '1.20.1', loader: 'Forge', platform: 'forge',
-		port: 25567, allocatedMemory: 8192, allocatedDisk: 40960, allocatedCpu: 300,
-		consoleLines: [], consoleTimer: null,
-		processType: 'docker', dockerImage: 'itzg/minecraft-server:latest'
-	},
-	{
-		id: 'srv_04', name: 'MiniGames Network', status: 'stopped',
-		gameVersion: '1.21', loader: 'Paper', platform: 'paper',
-		port: 25568, allocatedMemory: 3072, allocatedDisk: 15360, allocatedCpu: 150,
-		consoleLines: [], consoleTimer: null,
-		processType: 'docker', dockerImage: 'itzg/minecraft-server:latest'
-	},
-	{
-		id: 'srv_05', name: 'Palworld Server', status: 'stopped',
-		gameVersion: 'latest', loader: '', platform: 'steamcmd',
-		port: 8211, allocatedMemory: 8192, allocatedDisk: 30720, allocatedCpu: 200,
-		consoleLines: [], consoleTimer: null,
-		processType: 'bare'
-	}
-];
-
-// ── Mock in-memory file system ──
-type FsEntry = { name: string; type: 'file' | 'directory'; size: number; modifiedAt: string; mime?: string };
-const daemonFiles = new Map<string, FsEntry[]>();
-const daemonContents = new Map<string, string>();
-
-function createServerDirs(id: string) {
-	if (!daemonFiles.has(id)) {
-		daemonFiles.set(id, [
-			{ name: 'server.properties', type: 'file', size: 2840, modifiedAt: new Date().toISOString(), mime: 'text/plain' },
-			{ name: 'eula.txt', type: 'file', size: 168, modifiedAt: new Date().toISOString(), mime: 'text/plain' },
-			{ name: 'ops.json', type: 'file', size: 128, modifiedAt: new Date().toISOString(), mime: 'application/json' },
-			{ name: 'whitelist.json', type: 'file', size: 64, modifiedAt: new Date().toISOString(), mime: 'application/json' },
-			{ name: 'banned-players.json', type: 'file', size: 32, modifiedAt: new Date().toISOString(), mime: 'application/json' },
-			{ name: 'logs', type: 'directory', size: 0, modifiedAt: new Date().toISOString() },
-			{ name: 'world', type: 'directory', size: 0, modifiedAt: new Date().toISOString() },
-			{ name: 'plugins', type: 'directory', size: 0, modifiedAt: new Date().toISOString() },
-			{ name: 'mods', type: 'directory', size: 0, modifiedAt: new Date().toISOString() },
-		]);
-		daemonFiles.set(`${id}:/logs`, [
-			{ name: 'latest.log', type: 'file', size: 45280, modifiedAt: new Date().toISOString(), mime: 'text/plain' },
-		]);
-		daemonFiles.set(`${id}:/world`, [
-			{ name: 'level.dat', type: 'file', size: 2048000, modifiedAt: new Date().toISOString(), mime: 'application/octet-stream' },
-			{ name: 'region', type: 'directory', size: 0, modifiedAt: new Date().toISOString() },
-		]);
-		daemonContents.set(`${id}:/server.properties`, 'motd=Aurora Panel Server\ngamemode=survival\ndifficulty=normal\npvp=true\nmax-players=20\nserver-port=25565\nonline-mode=true\n');
-		daemonContents.set(`${id}:/eula.txt`, 'eula=true\n');
-		daemonContents.set(`${id}:/ops.json`, '[]');
-		daemonContents.set(`${id}:/whitelist.json`, '[]');
-		daemonContents.set(`${id}:/banned-players.json`, '[]');
-	}
-}
-
-function normalizeDir(s: string): string {
-	return s.endsWith('/') ? s.slice(0, -1) : s;
-}
-
-function listDaemonFiles(serverId: string, dir: string): { name: string; path: string; type: string; size: number; modifiedAt: string; sizeFormatted: string }[] {
-	createServerDirs(serverId);
-	const key = `${serverId}:${normalizeDir(dir)}`;
-	const entries = daemonFiles.get(key) || daemonFiles.get(`${serverId}:/`) || [];
-	return entries.map(e => ({
-		...e,
-		path: `${dir === '/' ? '' : dir}/${e.name}`,
-		sizeFormatted: e.type === 'file' ? formatDaemonSize(e.size) : ''
-	}));
-}
-
-function readDaemonFile(serverId: string, filePath: string): string | null {
-	const content = daemonContents.get(`${serverId}:${filePath}`);
-	return content ?? null;
-}
-
-function writeDaemonFile(serverId: string, filePath: string, content: string): void {
-	daemonContents.set(`${serverId}:${filePath}`, content);
-	const dirKey = `${serverId}:/`;
-	const entries = daemonFiles.get(dirKey) || [];
-	const existing = entries.find(e => `/${e.name}` === filePath);
-	if (!existing) {
-		entries.push({ name: filePath.split('/').pop() || 'file', type: 'file', size: content.length, modifiedAt: new Date().toISOString(), mime: 'text/plain' });
-	}
-}
-
-function deleteDaemonEntry(serverId: string, filePath: string): boolean {
-	const fileName = filePath.split('/').pop() || '';
-	const parentDir = filePath.substring(0, filePath.lastIndexOf('/')) || '/';
-	const dirKey = `${serverId}:${normalizeDir(parentDir)}`;
-	const entries = daemonFiles.get(dirKey);
-	if (!entries) return false;
-	const idx = entries.findIndex(e => e.name === fileName);
-	if (idx === -1) return false;
-	entries.splice(idx, 1);
-	daemonContents.delete(`${serverId}:${filePath}`);
-	return true;
-}
-
-function renameDaemonEntry(serverId: string, oldPath: string, newName: string): boolean {
-	const parentDir = oldPath.substring(0, oldPath.lastIndexOf('/')) || '/';
-	const dirKey = `${serverId}:${normalizeDir(parentDir)}`;
-	const entries = daemonFiles.get(dirKey);
-	if (!entries) return false;
-	const entry = entries.find(e => e.name === oldPath.split('/').pop());
-	if (!entry) return false;
-	const content = daemonContents.get(`${serverId}:${oldPath}`);
-	if (content !== undefined) {
-		daemonContents.delete(`${serverId}:${oldPath}`);
-		const newPath = parentDir === '/' ? `/${newName}` : `${parentDir}/${newName}`;
-		daemonContents.set(`${serverId}:${newPath}`, content);
-	}
-	entry.name = newName;
-	return true;
-}
-
-function createDaemonEntry(serverId: string, parentDir: string, name: string, type: 'file' | 'directory'): boolean {
-	const dirKey = `${serverId}:${normalizeDir(parentDir)}`;
-	const entries = daemonFiles.get(dirKey) || daemonFiles.get(`${serverId}:/`);
-	if (!entries) return false;
-	if (entries.some(e => e.name === name)) return false;
-	entries.push({ name, type, size: type === 'file' ? 0 : 0, modifiedAt: new Date().toISOString(), mime: type === 'file' ? 'text/plain' : undefined });
-	return true;
-}
-
-function formatDaemonSize(bytes: number): string {
-	if (bytes === 0) return '0 B';
-	const k = 1024;
-	const sizes = ['B', 'KB', 'MB', 'GB'];
-	const i = Math.floor(Math.log(bytes) / Math.log(k));
-	return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
-function getServer(id: string): ManagedServer | undefined {
-	return servers.find((s) => s.id === id);
-}
-
-function getSystemStats() {
-	return {
-		cpu: {
-			load: Math.random() * 100,
-			cores: 8
-		},
-		memory: {
-			total: 32768,
-			used: Math.floor(Math.random() * 16384) + 4096
-		},
-		disk: {
-			total: 512000,
-			used: Math.floor(Math.random() * 256000) + 50000
-		}
+	const srv: ManagedServer = {
+		id: data.id || id,
+		name: data.name || id,
+		slug: data.slug || id,
+		status: 'stopped',
+		type: data.type || 'minecraft',
+		game: data.game || 'minecraft',
+		gameVersion: data.gameVersion || 'latest',
+		loader: data.loader || '',
+		platform: data.platform || '',
+		port: data.port || 25565,
+		allocatedMemory: data.allocatedMemory || 1024,
+		allocatedDisk: data.allocatedDisk || 10240,
+		allocatedCpu: data.allocatedCpu || 100,
+		processType: data.processType || 'docker',
+		dockerImage: data.dockerImage || 'eclipse-temurin:21-jre',
+		startupCommand: data.startupCommand || 'java -Xmx${MEMORY}M -jar server.jar nogui',
+		stopCommand: data.stopCommand || 'stop',
+		consoleLines: [],
+		crashCount: 0,
+		lastCrashedAt: null,
+		stats: { cpuPercent: 0, memoryBytes: 0, diskBytes: 0, uptime: 0 },
+		createdAt: data.createdAt || Date.now(),
+		updatedAt: Date.now(),
 	};
+	servers.set(id, srv);
+	saveState();
+	return srv;
 }
 
-function startServerOutput(srv: ManagedServer, socket: Socket) {
-	if (srv.consoleTimer) return;
-	srv.status = 'running';
-	srv.consoleTimer = setInterval(() => {
-		const line = mockOutputs[Math.floor(Math.random() * mockOutputs.length)]!;
-		srv.consoleLines.push(`\x1b[${line}`);
-		if (srv.consoleLines.length > 500) srv.consoleLines.shift();
-		socket.emit('console:output', { serverId: srv.id, line: `\x1b[${line}` });
-	}, 3000 + Math.random() * 4000);
-}
-
-function stopServerOutput(srv: ManagedServer) {
-	if (srv.consoleTimer) {
-		clearInterval(srv.consoleTimer);
-		srv.consoleTimer = null;
+function updateServerStatus(id: string, status: ManagedServer['status']): void {
+	const srv = servers.get(id);
+	if (srv) {
+		srv.status = status;
+		srv.updatedAt = Date.now();
+		saveState();
 	}
-	srv.status = 'stopped';
 }
 
-function handleCommand(srv: ManagedServer, command: string, socket: Socket) {
-	const line = `> ${command}`;
-	srv.consoleLines.push(line);
-	socket.emit('console:output', { serverId: srv.id, line });
+// ── Crash Detection & Auto-Restart ──
 
-	const cmd = command.toLowerCase().trim();
-	setTimeout(() => {
-		let response = '';
-		if (cmd === 'help') {
-			response = '--- Help ---\n/help - Show help\n/list - List players\n/say <msg> - Broadcast message\n/stop - Stop server';
-		} else if (cmd === 'list') {
-			response = 'There are 2/20 players online: Steve, Alex';
-		} else if (cmd.startsWith('say ')) {
-			response = `[Server] ${cmd.slice(4)}`;
-		} else if (cmd === 'stop') {
-			response = '[31mWARN[0m] Server shutting down...';
-			stopServerOutput(srv);
-		} else {
-			response = `[33mWARN[0m] Unknown command. Use 'help' for a list of commands.`;
+async function checkContainerHealth(socket: Socket): Promise<void> {
+	for (const [, srv] of servers) {
+		if (srv.status !== 'running' && srv.status !== 'starting') continue;
+		if (srv.processType !== 'docker') continue;
+
+		const containerName = getContainerName(srv.id);
+		const state = await getContainerState(containerName);
+
+		if (state === 'exited' || state === 'dead') {
+			console.warn(`[Crash] Server ${srv.name} (${srv.id}) has exited with state: ${state}`);
+			srv.crashCount++;
+			srv.lastCrashedAt = Date.now();
+			srv.status = 'crashed';
+			socket.emit('server:status', { id: srv.id, status: 'crashed', crashCount: srv.crashCount });
+			socket.emit('server:crashed', { id: srv.id, name: srv.name, crashCount: srv.crashCount });
+
+			if (AUTO_RESTART && srv.crashCount <= MAX_CRASH_RESTARTS) {
+				console.log(`[Crash] Auto-restarting ${srv.name} (attempt ${srv.crashCount}/${MAX_CRASH_RESTARTS})`);
+				socket.emit('console:output', { serverId: srv.id, line: `[Aurora] Server crashed! Auto-restarting (attempt ${srv.crashCount}/${MAX_CRASH_RESTARTS})...` });
+				const started = await startContainer(srv, DOCKER_NETWORK);
+				if (started) {
+					updateServerStatus(srv.id, 'running');
+					socket.emit('server:status', { id: srv.id, status: 'running' });
+					socket.emit('console:output', { serverId: srv.id, line: '[Aurora] Server auto-restarted successfully' });
+					attachConsoleStreaming(srv, socket);
+				} else {
+					socket.emit('console:output', { serverId: srv.id, line: '[Aurora] Auto-restart failed!' });
+				}
+			} else if (srv.crashCount > MAX_CRASH_RESTARTS) {
+				socket.emit('console:output', { serverId: srv.id, line: `[Aurora] Max crash restarts (${MAX_CRASH_RESTARTS}) reached. Manual intervention required.` });
+			}
+
+			stopConsoleStream(srv.id);
+			saveState();
+		} else if (state === 'not_found') {
+			if (srv.status === 'running') {
+				updateServerStatus(srv.id, 'stopped');
+				socket.emit('server:status', { id: srv.id, status: 'stopped' });
+				stopConsoleStream(srv.id);
+			}
 		}
-		for (const r of response.split('\n')) {
-			const formatted = r.startsWith('[') ? `\x1b[${r}` : `[32mINFO[0m] ${r}`;
-			srv.consoleLines.push(formatted);
-			if (srv.consoleLines.length > 500) srv.consoleLines.shift();
-			socket.emit('console:output', { serverId: srv.id, line: formatted });
-		}
-	}, 200);
+	}
 }
+
+function attachConsoleStreaming(srv: ManagedServer, socket: Socket): void {
+	stopConsoleStream(srv.id);
+	if (srv.processType !== 'docker') return;
+
+	const containerName = getContainerName(srv.id);
+	const cleanup = streamContainerLogs(
+		srv,
+		(line) => {
+			srv.consoleLines.push(line);
+			if (srv.consoleLines.length > 1000) srv.consoleLines.shift();
+			socket.emit('console:output', { serverId: srv.id, line });
+		},
+		(err) => {
+			console.error(`[Console] Error for ${srv.id}:`, err.message);
+		},
+		() => {
+			console.log(`[Console] Stream ended for ${srv.id}`);
+		}
+	);
+
+	cleanup.then(fn => logStreamers.set(srv.id, fn)).catch(() => {});
+}
+
+function stopConsoleStream(serverId: string): void {
+	const cleanup = logStreamers.get(serverId);
+	if (cleanup) {
+		cleanup();
+		logStreamers.delete(serverId);
+	}
+}
+
+// ── Stats Collection ──
+
+async function collectStats(socket: Socket): Promise<void> {
+	for (const [, srv] of servers) {
+		if (srv.status !== 'running') continue;
+		if (srv.processType === 'docker') {
+			const containerName = getContainerName(srv.id);
+			const stats = await getContainerStats(containerName);
+			if (stats) {
+				srv.stats.cpuPercent = stats.cpuPercent;
+				srv.stats.memoryBytes = stats.memoryBytes;
+			}
+		}
+		srv.stats.diskBytes = getServerDirectorySize(SERVERS_DIR, srv.id);
+		srv.stats.uptime = srv.status === 'running' ? Math.floor((Date.now() - srv.updatedAt) / 1000) : 0;
+	}
+
+	const systemStats = getSystemStats({ serversDir: SERVERS_DIR, daemonId: DAEMON_ID, version: DAEMON_VERSION, serversCount: servers.size });
+	socket.emit('daemon:stats', systemStats);
+}
+
+// ── Main ──
 
 async function main() {
-	console.log(`[Daemon ${DAEMON_ID}] Starting...`);
+	console.log(`[Daemon ${DAEMON_ID}] Starting Aurora Daemon v${DAEMON_VERSION}`);
+	console.log(`[Daemon] Host: ${getHostInfo().hostname} (${getHostInfo().platform}/${getHostInfo().arch})`);
 
-	await ensureDockerNetwork();
+	if (!existsSync(SERVERS_DIR)) mkdirSync(SERVERS_DIR, { recursive: true });
+	if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
 
+	loadState();
+
+	const dockerAvailable = await ensureDockerNetwork(DOCKER_NETWORK);
+	console.log(`[Docker] ${dockerAvailable ? 'Available' : 'Not available — using bare process mode'}`);
+
+	// ── Socket.IO Connection ──
 	const socket: Socket = createSocketClient(PANEL_URL, {
 		path: '/ws',
 		auth: { token: DAEMON_TOKEN, type: 'daemon', daemonId: DAEMON_ID },
@@ -405,145 +225,239 @@ async function main() {
 		reconnection: true,
 		reconnectionAttempts: Infinity,
 		reconnectionDelay: 2000,
+		reconnectionDelayMax: 30000,
 	});
 
 	socket.on('connect', () => {
 		console.log(`[Daemon ${DAEMON_ID}] Connected to panel at ${PANEL_URL}`);
-		const stats = getSystemStats();
-		socket.emit('daemon:register', {
-			id: DAEMON_ID,
-			name: DAEMON_NAME,
-			host: 'localhost',
-			port: DAEMON_PORT,
-			...stats,
-			uptime: process.uptime(),
-			version: DAEMON_VERSION,
-			servers: servers.map(s => ({ id: s.id, name: s.name, status: s.status, processType: s.processType || 'bare' }))
-		});
+		sendRegistration(socket);
 	});
 
 	socket.on('disconnect', () => {
-		console.log(`[Daemon ${DAEMON_ID}] Disconnected from panel`);
+		console.log(`[Daemon ${DAEMON_ID}] Disconnected from panel — servers continue running`);
 	});
 
 	socket.on('connect_error', (err) => {
 		console.error(`[Daemon ${DAEMON_ID}] Connection error:`, err.message);
 	});
 
+	// ── Server Lifecycle Events ──
+
 	socket.on('server:start', async (serverId: string) => {
-		const srv = getServer(serverId);
-		if (!srv) return;
-		console.log(`[Daemon ${DAEMON_ID}] Starting server ${srv.name}`);
+		const srv = servers.get(serverId);
+		if (!srv) { socket.emit('server:status', { id: serverId, status: 'error', error: 'Server not found' }); return; }
+		console.log(`[Daemon] Starting server ${srv.name} (${srv.id})`);
+
+		updateServerStatus(srv.id, 'starting');
+		socket.emit('server:status', { id: serverId, status: 'starting' });
 
 		if (srv.processType === 'docker') {
-			const started = await dockerStartContainer(srv);
+			ensureEula(SERVERS_DIR, srv.id);
+			const started = await startContainer(srv, DOCKER_NETWORK);
 			if (started) {
-				srv.status = 'running';
-				startServerOutput(srv, socket);
+				updateServerStatus(srv.id, 'running');
 				socket.emit('server:status', { id: serverId, status: 'running' });
+				attachConsoleStreaming(srv, socket);
 			} else {
-				srv.status = 'error';
+				updateServerStatus(srv.id, 'error');
 				socket.emit('server:status', { id: serverId, status: 'error' });
+				socket.emit('console:output', { serverId, line: '[ERROR] Failed to start server container' });
 			}
 		} else {
-			startServerOutput(srv, socket);
+			updateServerStatus(srv.id, 'running');
 			socket.emit('server:status', { id: serverId, status: 'running' });
 		}
 	});
 
 	socket.on('server:stop', async (serverId: string) => {
-		const srv = getServer(serverId);
+		const srv = servers.get(serverId);
 		if (!srv) return;
-		console.log(`[Daemon ${DAEMON_ID}] Stopping server ${srv.name}`);
+		console.log(`[Daemon] Stopping server ${srv.name}`);
+
+		updateServerStatus(srv.id, 'stopping');
+		socket.emit('server:status', { id: serverId, status: 'stopping' });
 
 		if (srv.processType === 'docker') {
-			await dockerStopContainer(srv);
+			await executeCommand(srv, srv.stopCommand || 'stop').catch(() => {});
+			await new Promise(resolve => setTimeout(resolve, 2000));
+			await stopContainer(srv);
 		}
-		stopServerOutput(srv);
+
+		stopConsoleStream(srv.id);
+		updateServerStatus(srv.id, 'stopped');
 		socket.emit('server:status', { id: serverId, status: 'stopped' });
-		srv.consoleLines.push('\x1b[31mWARN[0m] Server stopped');
-		socket.emit('console:output', { serverId, line: '\x1b[31mWARN[0m] Server stopped' });
+		socket.emit('console:output', { serverId, line: '[INFO] Server stopped' });
+	});
+
+	socket.on('server:kill', async (serverId: string) => {
+		const srv = servers.get(serverId);
+		if (!srv) return;
+		console.log(`[Daemon] Killing server ${srv.name}`);
+
+		if (srv.processType === 'docker') {
+			await stopContainer(srv);
+		}
+
+		stopConsoleStream(srv.id);
+		updateServerStatus(srv.id, 'stopped');
+		socket.emit('server:status', { id: serverId, status: 'stopped' });
 	});
 
 	socket.on('server:restart', async (serverId: string) => {
-		const srv = getServer(serverId);
+		const srv = servers.get(serverId);
 		if (!srv) return;
-		console.log(`[Daemon ${DAEMON_ID}] Restarting server ${srv.name}`);
+		console.log(`[Daemon] Restarting server ${srv.name}`);
 
-		if (srv.processType === 'docker') {
-			await dockerStopContainer(srv);
-		}
-		stopServerOutput(srv);
+		updateServerStatus(srv.id, 'restarting');
 		socket.emit('server:status', { id: serverId, status: 'restarting' });
 
-		setTimeout(async () => {
-			if (srv.processType === 'docker') {
-				await dockerStartContainer(srv);
+		if (srv.processType === 'docker') {
+			await executeCommand(srv, srv.stopCommand || 'stop').catch(() => {});
+			await new Promise(resolve => setTimeout(resolve, 2000));
+			stopConsoleStream(srv.id);
+			const restarted = await restartContainer(srv, DOCKER_NETWORK);
+			if (restarted) {
+				updateServerStatus(srv.id, 'running');
+				socket.emit('server:status', { id: serverId, status: 'running' });
+				attachConsoleStreaming(srv, socket);
+			} else {
+				updateServerStatus(srv.id, 'error');
+				socket.emit('server:status', { id: serverId, status: 'error' });
 			}
-			startServerOutput(srv, socket);
+		} else {
+			updateServerStatus(srv.id, 'running');
 			socket.emit('server:status', { id: serverId, status: 'running' });
-		}, 1000);
+		}
 	});
 
-	socket.on('server:create', async (data: { id: string; name: string; port: number; allocatedMemory: number; allocatedDisk: number; allocatedCpu: number; gameVersion: string; loader: string; processType?: string; dockerImage?: string }) => {
-		const existing = getServer(data.id);
-		if (existing) {
-			console.log(`[Daemon ${DAEMON_ID}] Server ${data.id} already exists, skipping creation`);
+	// ── Server Creation (with auto-download) ──
+
+	socket.on('server:create', async (data: {
+		id: string; name: string; slug: string; gameVersion: string; loader: string; platform: string;
+		allocatedMemory: number; allocatedDisk: number; allocatedCpu: number; allocationPort: number;
+		processType?: string; dockerImage?: string; type: string; game: string;
+	}) => {
+		if (servers.has(data.id)) {
+			console.log(`[Daemon] Server ${data.id} already exists`);
 			return;
 		}
-		const srv: ManagedServer = {
+
+		console.log(`[Daemon] Creating server ${data.name} (${data.id})`);
+
+		const srv = getOrCreateServer(data.id, {
 			id: data.id,
 			name: data.name,
-			status: 'stopped',
+			slug: data.slug || data.name.toLowerCase().replace(/\s+/g, '-'),
+			type: (data.type || 'minecraft') as ManagedServer['type'],
+			game: data.game || 'minecraft',
 			gameVersion: data.gameVersion || 'latest',
 			loader: data.loader || '',
-			platform: data.loader || '',
-			port: data.port || 25565,
+			platform: data.platform || '',
+			port: data.allocationPort || 25565,
 			allocatedMemory: data.allocatedMemory || 1024,
 			allocatedDisk: data.allocatedDisk || 10240,
 			allocatedCpu: data.allocatedCpu || 100,
-			consoleLines: [],
-			consoleTimer: null,
-			processType: (data.processType as 'docker' | 'bare') || 'docker',
-			dockerImage: data.dockerImage
-		};
-		servers.push(srv);
-		createServerDirs(data.id);
-		console.log(`[Daemon ${DAEMON_ID}] Created server ${srv.name} (${srv.id})`);
+			processType: (data.processType as ManagedServer['processType']) || 'docker',
+			dockerImage: data.dockerImage || 'eclipse-temurin:21-jre',
+		});
 
-		if (srv.processType === 'docker') {
-			const pulled = await dockerPullImage(srv.dockerImage || 'itzg/minecraft-server:latest');
-			if (pulled) console.log(`[Docker] Pulled image for ${srv.name}`);
+		if (!srv) return;
+
+		updateServerStatus(srv.id, 'installing');
+		createServerDirectory(SERVERS_DIR, srv.id);
+		ensureEula(SERVERS_DIR, srv.id);
+
+		// Auto-download server jar using egg system
+		if (srv.type === 'minecraft' && srv.gameVersion && srv.gameVersion !== 'latest') {
+			const egg = getEggForPlatform(srv.platform || srv.loader);
+			if (egg) {
+				console.log(`[Daemon] Downloading ${egg.name} ${srv.gameVersion} via egg system...`);
+				socket.emit('console:output', { serverId: srv.id, line: `[Aurora] Downloading ${egg.name} ${srv.gameVersion}...` });
+				const success = await egg.download(srv.gameVersion, join(SERVERS_DIR, srv.id));
+				if (success) {
+					console.log(`[Daemon] Successfully downloaded ${egg.name} ${srv.gameVersion}`);
+					socket.emit('console:output', { serverId: srv.id, line: `[Aurora] ${egg.name} ${srv.gameVersion} downloaded successfully` });
+				} else {
+					console.warn(`[Daemon] Failed to download ${egg.name} ${srv.gameVersion}`);
+					socket.emit('console:output', { serverId: srv.id, line: `[Aurora] WARNING: Could not auto-download server jar. You may need to upload it manually.` });
+				}
+			} else {
+				console.log(`[Daemon] No egg found for platform ${srv.platform || srv.loader}, skipping auto-download`);
+			}
 		}
 
-		socket.emit('server:created', { id: data.id, success: true });
+		updateServerStatus(srv.id, 'stopped');
+		socket.emit('server:created', { id: data.id, success: true, status: 'stopped' });
+		saveState();
 	});
 
-	socket.on('console:command', ({ serverId, command }: { serverId: string; command: string }) => {
-		const srv = getServer(serverId);
+	// ── Console Events ──
+
+	socket.on('console:command', async ({ serverId, command }: { serverId: string; command: string }) => {
+		const srv = servers.get(serverId);
 		if (!srv) return;
-		handleCommand(srv, command, socket);
+
+		srv.consoleLines.push(`> ${command}`);
+		socket.emit('console:output', { serverId, line: `> ${command}` });
+
+		if (srv.processType === 'docker') {
+			await sendStdin(srv, command);
+		}
+
+		saveState();
 	});
 
-	socket.on('console:subscribe', (serverId: string) => {
-		const srv = getServer(serverId);
+	socket.on('console:subscribe', async (serverId: string) => {
+		const srv = servers.get(serverId);
 		if (!srv) return;
-		socket.emit('console:history', srv.consoleLines);
+
+		socket.emit('console:history', srv.consoleLines.slice(-200));
+
+		if (srv.processType === 'docker' && srv.status === 'running') {
+			const logs = await getContainerLogs(getContainerName(srv.id), 50);
+			if (logs.length > 0) {
+				socket.emit('console:history', logs);
+			}
+		}
 	});
 
 	socket.on('docker:exec', async ({ serverId, command }: { serverId: string; command: string }) => {
-		const srv = getServer(serverId);
+		const srv = servers.get(serverId);
 		if (!srv || srv.processType !== 'docker') return;
-		const result = await dockerExec(srv, command);
+		const result = await executeCommand(srv, command);
 		socket.emit('docker:exec:result', { serverId, result });
 	});
 
 	socket.on('docker:logs', async (serverId: string) => {
-		const srv = getServer(serverId);
+		const srv = servers.get(serverId);
 		if (!srv || srv.processType !== 'docker') return;
-		const logs = await getDockerLogs(srv);
+		const logs = await getContainerLogs(getContainerName(srv.id));
 		socket.emit('docker:logs:result', { serverId, logs });
 	});
+
+	// ── Periodic Tasks ──
+
+	statsInterval = setInterval(() => {
+		collectStats(socket).catch(() => {});
+	}, 5000);
+
+	healthCheckInterval = setInterval(() => {
+		checkContainerHealth(socket).catch(() => {});
+	}, 10000);
+
+	// Save state every 30 seconds
+	setInterval(() => saveState(), 30000);
+
+	// Re-attach console streaming for any running servers after reconnect
+	socket.on('connect', () => {
+		for (const [, srv] of servers) {
+			if (srv.status === 'running' && srv.processType === 'docker') {
+				attachConsoleStreaming(srv, socket);
+			}
+		}
+	});
+
+	// ── HTTP Server (REST API) ──
 
 	Bun.serve({
 		port: DAEMON_PORT,
@@ -551,97 +465,168 @@ async function main() {
 			const url = new URL(req.url);
 			const pathname = url.pathname;
 
+			// Auth check for REST endpoints
+			const authHeader = req.headers.get('authorization');
+			if (pathname !== '/health') {
+				if (!authHeader || !authHeader.startsWith('Bearer ')) {
+					return Response.json({ error: 'Unauthorized' }, { status: 401 });
+				}
+				const token = authHeader.slice(7);
+				try {
+					const decoded = jwt.verify(token, JWT_SECRET) as { id: string; type: string };
+					if (decoded.type !== 'panel' && decoded.type !== 'daemon') {
+						return Response.json({ error: 'Invalid token type' }, { status: 403 });
+					}
+				} catch {
+					return Response.json({ error: 'Invalid token' }, { status: 401 });
+				}
+			}
+
 			try {
 				if (pathname === '/health') {
-					const stats = getSystemStats();
+					const systemStats = getSystemStats({ serversDir: SERVERS_DIR, daemonId: DAEMON_ID, version: DAEMON_VERSION, serversCount: servers.size });
 					return Response.json({
 						status: 'ok',
-						daemonId: DAEMON_ID,
-						...stats,
-						uptime: process.uptime(),
-						version: DAEMON_VERSION
+						...systemStats,
+						host: getHostInfo(),
+						servers: Array.from(servers.values()).map(s => ({
+							id: s.id, name: s.name, status: s.status, processType: s.processType,
+						})),
 					});
 				}
 
 				if (pathname === '/servers') {
-					return Response.json(servers.map(s => ({
+					return Response.json(Array.from(servers.values()).map(s => ({
 						id: s.id, name: s.name, status: s.status,
-						gameVersion: s.gameVersion, loader: s.loader, platform: s.platform, port: s.port,
-						allocatedMemory: s.allocatedMemory, allocatedDisk: s.allocatedDisk, allocatedCpu: s.allocatedCpu,
-						processType: s.processType || 'bare', dockerImage: s.dockerImage
+						gameVersion: s.gameVersion, loader: s.loader, platform: s.platform,
+						port: s.port, processType: s.processType,
+						stats: s.stats, crashCount: s.crashCount,
 					})));
 				}
 
 				if (pathname === '/docker/info') {
-					const dockerAvailable = await ensureDockerNetwork().catch(() => false);
 					return Response.json({
 						available: dockerAvailable,
 						network: DOCKER_NETWORK,
-						containers: servers.filter(s => s.processType === 'docker').map(s => ({
-							id: s.id, name: s.name, container: getContainerName(s.id), status: s.status
-						}))
+						containers: Array.from(servers.values()).filter(s => s.processType === 'docker').map(s => ({
+							id: s.id, name: s.name, container: getContainerName(s.id), status: s.status,
+						})),
 					});
 				}
 
+				if (pathname === '/eggs') {
+					const { getAllEggs } = await import('./eggs');
+					return Response.json(getAllEggs().map(e => ({
+						id: e.id, name: e.name, game: e.game, description: e.description,
+						loader: e.loader, platform: e.platform,
+						defaultMemory: e.defaultMemory, defaultDisk: e.defaultDisk, defaultCpu: e.defaultCpu, defaultPort: e.defaultPort,
+						supportsMods: e.supportsMods, supportsPlugins: e.supportsPlugins, supportsDatapacks: e.supportsDatapacks,
+					})));
+				}
+
+				if (pathname === '/eggs/versions' && req.method === 'POST') {
+					const { eggId } = await req.json() as { eggId: string };
+					const egg = getEgg(eggId);
+					if (!egg) return Response.json({ error: 'Egg not found' }, { status: 404 });
+					const versions = await egg.versionList();
+					return Response.json(versions);
+				}
+
+				if (pathname === '/eggs/versions/refresh' && req.method === 'POST') {
+					const { refreshManifest } = await import('./version-manifest');
+					await refreshManifest();
+					const { getAllEggs } = await import('./eggs');
+					return Response.json({ success: true, eggs: getAllEggs().map(e => ({
+						id: e.id, name: e.name,
+					})) });
+				}
+
+				// ── Backup Operations ──
 				if (pathname === '/backup' && req.method === 'POST') {
 					const { serverId } = await req.json() as { serverId: string };
-					const srv = getServer(serverId);
-					if (!srv) return Response.json({ error: 'Server not found' }, { status: 404 });
-					const backupDir = `${SERVERS_DIR}/${srv.id}/backups`;
+					if (!servers.has(serverId)) return Response.json({ error: 'Server not found' }, { status: 404 });
+					const backupDir = `${SERVERS_DIR}/${serverId}/backups`;
 					const backupName = `backup-${Date.now()}.tar.gz`;
-					await Bun.$`mkdir -p ${backupDir}`;
-					const proc = Bun.$`tar -czf ${backupDir}/${backupName} -C ${SERVERS_DIR}/${srv.id} .`;
-					const { exitCode } = await proc.quiet();
-					if (exitCode !== 0) return Response.json({ error: 'Backup failed' }, { status: 500 });
-					return Response.json({ success: true, name: backupName, path: `${backupDir}/${backupName}` });
+					try {
+						if (!existsSync(backupDir)) mkdirSync(backupDir, { recursive: true });
+						const proc = Bun.$`tar -czf ${backupDir}/${backupName} -C ${SERVERS_DIR}/${serverId} --exclude=backups .`;
+						const { exitCode } = await proc.quiet();
+						if (exitCode !== 0) throw new Error('tar failed');
+						const stats = existsSync(`${backupDir}/${backupName}`) ? await import('node:fs').then(fs => fs.statSync(`${backupDir}/${backupName}`)) : null;
+						return Response.json({ success: true, name: backupName, size: stats?.size || 0, path: `${backupDir}/${backupName}` });
+					} catch (e) {
+						return Response.json({ error: 'Backup failed', details: String(e) }, { status: 500 });
+					}
+				}
+
+				if (pathname.startsWith('/backup/') && req.method === 'GET') {
+					const fileName = pathname.replace('/backup/', '');
+					const serverId = url.searchParams.get('server');
+					if (!serverId || !fileName) return Response.json({ error: 'Missing params' }, { status: 400 });
+					const filePath = `${SERVERS_DIR}/${serverId}/backups/${fileName}`;
+					if (!existsSync(filePath)) return Response.json({ error: 'Not found' }, { status: 404 });
+					const file = Bun.file(filePath);
+					return new Response(file, {
+						headers: { 'Content-Type': 'application/gzip' },
+					});
 				}
 
 				if (pathname.startsWith('/backup/') && req.method === 'DELETE') {
-					const serverId = url.searchParams.get('server');
 					const fileName = pathname.replace('/backup/', '');
+					const serverId = url.searchParams.get('server');
 					if (!serverId || !fileName) return Response.json({ error: 'Missing params' }, { status: 400 });
-					await Bun.$`rm -f ${SERVERS_DIR}/${serverId}/backups/${fileName}`;
+					const filePath = `${SERVERS_DIR}/${serverId}/backups/${fileName}`;
+					if (!existsSync(filePath)) return Response.json({ error: 'Not found' }, { status: 404 });
+					await import('node:fs').then(fs => fs.unlinkSync(filePath));
 					return Response.json({ success: true });
 				}
 
 				if (pathname === '/backup/restore' && req.method === 'POST') {
 					const { serverId, fileName } = await req.json() as { serverId: string; fileName: string };
 					const backupPath = `${SERVERS_DIR}/${serverId}/backups/${fileName}`;
-					await Bun.$`tar -xzf ${backupPath} -C ${SERVERS_DIR}/${serverId}`;
+					if (!existsSync(backupPath)) return Response.json({ error: 'Backup not found' }, { status: 404 });
+					const proc = Bun.$`tar -xzf ${backupPath} -C ${SERVERS_DIR}/${serverId}`;
+					const { exitCode } = await proc.quiet();
+					if (exitCode !== 0) return Response.json({ error: 'Restore failed' }, { status: 500 });
 					return Response.json({ success: true, message: `Restored from ${fileName}` });
 				}
 
+				// ── File Operations (Real Filesystem) ──
 				if (pathname.startsWith('/files/')) {
 					const serverId = url.searchParams.get('server');
 					if (!serverId) return Response.json({ error: 'Missing server' }, { status: 400 });
+					if (!servers.has(serverId)) return Response.json({ error: 'Server not found' }, { status: 404 });
+
 					const dir = url.searchParams.get('dir');
 					const filePath = url.searchParams.get('path');
 					const action = url.searchParams.get('action');
 
 					if (req.method === 'GET' && dir !== null) {
-						return Response.json(listDaemonFiles(serverId, dir));
+						return Response.json(listFiles(SERVERS_DIR, serverId, dir));
 					}
 					if (req.method === 'GET' && filePath) {
-						const content = readDaemonFile(serverId, filePath);
+						const content = readFile(SERVERS_DIR, serverId, filePath);
 						if (content === null) return Response.json({ error: 'File not found' }, { status: 404 });
-						return Response.json({ content });
+						const ext = filePath.split('.').pop()?.toLowerCase();
+						const isText = ['txt', 'properties', 'json', 'yml', 'yaml', 'xml', 'log', 'cfg', 'conf', 'toml', 'md', 'js', 'ts', 'css', 'html', 'sh', 'env'].includes(ext || '');
+						return Response.json({ content, isTextFile: isText });
 					}
 					if (req.method === 'PUT' && filePath) {
 						const body = await req.json() as { content?: string };
 						if (!body || body.content === undefined) return Response.json({ error: 'Missing content' }, { status: 400 });
-						writeDaemonFile(serverId, filePath, body.content);
-						return Response.json({ success: true });
+						return Response.json({ success: writeFile_(SERVERS_DIR, serverId, filePath, body.content) });
 					}
 					if (req.method === 'DELETE' && filePath) {
-						return Response.json({ success: deleteDaemonEntry(serverId, filePath) });
+						return Response.json({ success: deleteEntry(SERVERS_DIR, serverId, filePath) });
 					}
 					if (req.method === 'PATCH' && action) {
 						const body = await req.json() as { name?: string };
 						if (action === 'rename' && filePath && body?.name) {
-							return Response.json({ success: renameDaemonEntry(serverId, filePath, body.name) });
+							return Response.json({ success: renameEntry(SERVERS_DIR, serverId, filePath, body.name) });
 						}
 						if ((action === 'mkdir' || action === 'touch') && dir && body?.name) {
-							return Response.json({ success: createDaemonEntry(serverId, dir, body.name, action === 'mkdir' ? 'directory' : 'file') });
+							const type = action === 'mkdir' ? 'directory' : 'file';
+							return Response.json({ success: createEntry(SERVERS_DIR, serverId, dir, body.name, type) });
 						}
 						return Response.json({ error: 'Invalid action' }, { status: 400 });
 					}
@@ -652,10 +637,53 @@ async function main() {
 			} catch (e) {
 				return Response.json({ error: e instanceof Error ? e.message : 'Internal error' }, { status: 500 });
 			}
-		}
+		},
 	});
 
 	console.log(`[Daemon ${DAEMON_ID}] HTTP server listening on port ${DAEMON_PORT}`);
+
+	// ── Graceful Shutdown ──
+
+	process.on('SIGINT', async () => {
+		console.log('\n[Daemon] Shutting down...');
+		shutdown(socket);
+	});
+
+	process.on('SIGTERM', async () => {
+		console.log('[Daemon] Shutting down...');
+		shutdown(socket);
+	});
+}
+
+function sendRegistration(socket: Socket): void {
+	const systemStats = getSystemStats({ serversDir: SERVERS_DIR, daemonId: DAEMON_ID, version: DAEMON_VERSION, serversCount: servers.size });
+	socket.emit('daemon:register', {
+		id: DAEMON_ID,
+		name: DAEMON_NAME,
+		host: 'localhost',
+		port: DAEMON_PORT,
+		...systemStats,
+		servers: Array.from(servers.values()).map(s => ({
+			id: s.id, name: s.name, status: s.status, processType: s.processType,
+			loader: s.loader, gameVersion: s.gameVersion, stats: s.stats,
+		})),
+	});
+}
+
+function shutdown(socket: Socket): void {
+	if (statsInterval) clearInterval(statsInterval);
+	if (healthCheckInterval) clearInterval(healthCheckInterval);
+
+	for (const [id, cleanup] of logStreamers) {
+		cleanup();
+	}
+	logStreamers.clear();
+
+	saveState();
+	socket.disconnect();
+
+	console.log('[Daemon] Goodbye');
+	process.exit(0);
 }
 
 main().catch(console.error);

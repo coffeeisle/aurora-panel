@@ -6,9 +6,11 @@ export function createSocketServer(httpServer: HttpServer) {
 	const io = new SocketServer(httpServer, {
 		cors: {
 			origin: process.env['PUBLIC_APP_URL'] ?? 'http://localhost:5173',
-			credentials: true
+			credentials: true,
 		},
-		path: '/ws'
+		path: '/ws',
+		pingInterval: 25000,
+		pingTimeout: 20000,
 	});
 
 	io.use((socket, next) => {
@@ -41,24 +43,35 @@ export function createSocketServer(httpServer: HttpServer) {
 			const daemonId = socket.handshake.auth.daemonId || 'unknown';
 			console.log(`[Socket] Daemon connected: ${daemonId} (${socket.id})`);
 
-			socket.on('daemon:register', (data: {
-				id: string; name?: string; host?: string; port?: number;
-				cpu?: { load: number; cores: number };
-				memory?: { total: number; used: number };
-				disk?: { total: number; used: number };
-				uptime?: number; version?: string;
-				servers?: { id: string; name: string; status: string }[];
-			}) => {
+			socket.on('daemon:register', (data: Record<string, unknown>) => {
 				io.emit('daemon:registered', data);
 			});
 
-			socket.on('server:status', (data: { id: string; status: string }) => {
+			socket.on('daemon:stats', (data: Record<string, unknown>) => {
+				io.emit('daemon:stats', data);
+			});
+
+			socket.on('server:status', (data: { id: string; status: string; crashCount?: number }) => {
 				io.to(`server:${data.id}`).emit('server:status', data);
 				io.emit('server:status:global', data);
 			});
 
+			socket.on('server:crashed', (data: { id: string; name: string; crashCount: number }) => {
+				io.to(`server:${data.id}`).emit('server:crashed', data);
+				io.emit('server:crashed:global', data);
+			});
+
+			socket.on('server:created', (data: { id: string; success: boolean; status: string }) => {
+				io.emit('server:created', data);
+			});
+
 			socket.on('console:output', (data: { serverId: string; line: string }) => {
 				io.to(`server:${data.serverId}`).emit('console:output', data);
+			});
+
+			socket.on('console:history', (data: string[]) => {
+				const serverId = socket.handshake.auth.serverId || '';
+				io.to(`server:${serverId}`).emit('console:history', data);
 			});
 
 			socket.on('disconnect', () => {
@@ -73,6 +86,10 @@ export function createSocketServer(httpServer: HttpServer) {
 				emitToDaemon(io, 'console:subscribe', serverId);
 			});
 
+			socket.on('console:unsubscribe', (serverId: string) => {
+				socket.leave(`server:${serverId}`);
+			});
+
 			socket.on('console:command', (data: { serverId: string; command: string }) => {
 				emitToDaemon(io, 'console:command', data);
 			});
@@ -83,6 +100,10 @@ export function createSocketServer(httpServer: HttpServer) {
 
 			socket.on('server:stop', (serverId: string) => {
 				emitToDaemon(io, 'server:stop', serverId);
+			});
+
+			socket.on('server:kill', (serverId: string) => {
+				emitToDaemon(io, 'server:kill', serverId);
 			});
 
 			socket.on('server:restart', (serverId: string) => {

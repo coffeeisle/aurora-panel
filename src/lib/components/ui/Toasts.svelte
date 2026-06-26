@@ -1,24 +1,31 @@
 <script lang="ts">
-	import { toasts, type Toast } from '$lib/stores/toast';
+	import { toastStore, type Toast } from '$lib/stores/toast';
 	import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from '@lucide/svelte';
+
+	let items = $state<Toast[]>([]);
+
+	$effect(() => {
+		const unsub = toastStore.subscribe((t) => { items = t; });
+		return unsub;
+	});
 
 	const iconMap: Record<string, typeof CheckCircle> = {
 		success: CheckCircle,
 		error: AlertCircle,
 		warning: AlertTriangle,
-		info: Info
+		info: Info,
 	};
 
 	const colorMap: Record<string, string> = {
 		success: 'border-green-500/30 bg-green-500/10 text-green-400',
 		error: 'border-red-500/30 bg-red-500/10 text-red-400',
 		warning: 'border-yellow-500/30 bg-yellow-500/10 text-yellow-400',
-		info: 'border-blue-500/30 bg-blue-500/10 text-blue-400'
+		info: 'border-blue-500/30 bg-blue-500/10 text-blue-400',
 	};
 </script>
 
 <div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
-	{#each $toasts as toast (toast.id)}
+	{#each items as toast (toast.id)}
 		<div
 			class="flex items-start gap-3 rounded-lg border p-3 text-sm shadow-lg transition-all {colorMap[toast.type]}"
 		>
@@ -41,7 +48,7 @@
 			</div>
 			<button
 				class="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
-				onclick={() => toasts.remove(toast.id)}
+				onclick={() => toastStore.dismiss(toast.id)}
 			>
 				<X class="h-3.5 w-3.5" />
 			</button>

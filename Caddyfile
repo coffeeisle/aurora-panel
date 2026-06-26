@@ -1,0 +1,14 @@
+{$DOMAIN:panel.example.com} {
+    reverse_proxy panel:{$PANEL_PORT:-3000}
+    encode gzip
+
+    header /api/* {
+        Access-Control-Allow-Origin "{$PUBLIC_APP_URL:-https://panel.example.com}"
+        Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        Access-Control-Allow-Headers "Content-Type, Authorization"
+    }
+
+    log {
+        output file /data/caddy/logs/access.log
+    }
+}

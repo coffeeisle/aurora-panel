@@ -1,6 +1,4 @@
-import { writable } from 'svelte/store';
-
-export type ToastType = 'success' | 'error' | 'info' | 'warning';
+type ToastType = 'success' | 'error' | 'info' | 'warning';
 
 export interface Toast {
 	id: string;
@@ -10,46 +8,49 @@ export interface Toast {
 	duration?: number;
 }
 
-function createToastStore() {
-	const { subscribe, update } = writable<Toast[]>([]);
+let listeners: Array<(items: Toast[]) => void> = [];
+let items: Toast[] = [];
+let counter = 0;
 
-	function add(toast: Omit<Toast, 'id'>) {
-		const id = crypto.randomUUID();
-		update((t) => [...t, { ...toast, id }]);
-		const duration = toast.duration ?? 5000;
-		if (duration > 0) {
-			setTimeout(() => {
-				remove(id);
-			}, duration);
-		}
-		return id;
+function notify() {
+	for (const listener of listeners) {
+		listener([...items]);
 	}
-
-	function remove(id: string) {
-		update((t) => t.filter((toast) => toast.id !== id));
-	}
-
-	function success(title: string, message?: string) {
-		add({ type: 'success', title, message, duration: 4000 });
-	}
-
-	function error(title: string, message?: string) {
-		add({ type: 'error', title, message, duration: 8000 });
-	}
-
-	function info(title: string, message?: string) {
-		add({ type: 'info', title, message, duration: 5000 });
-	}
-
-	function warning(title: string, message?: string) {
-		add({ type: 'warning', title, message, duration: 6000 });
-	}
-
-	function clear() {
-		update(() => []);
-	}
-
-	return { subscribe, add, remove, success, error, info, warning, clear };
 }
 
-export const toasts = createToastStore();
+export const toastStore = {
+	subscribe(listener: (items: Toast[]) => void) {
+		listeners.push(listener);
+		listener([...items]);
+		return () => {
+			listeners = listeners.filter(l => l !== listener);
+		};
+	},
+
+	add(type: ToastType, title: string, message?: string, duration = 5000) {
+		const id = `toast-${++counter}`;
+		items = [...items, { id, type, title, message, duration }];
+		notify();
+		if (duration > 0) {
+			setTimeout(() => this.dismiss(id), duration);
+		}
+	},
+
+	dismiss(id: string) {
+		items = items.filter(t => t.id !== id);
+		notify();
+	},
+
+	clear() {
+		items = [];
+		notify();
+	},
+};
+
+export const toasts = {
+	success(title: string, message?: string) { toastStore.add('success', title, message); },
+	error(title: string, message?: string) { toastStore.add('error', title, message, 8000); },
+	info(title: string, message?: string) { toastStore.add('info', title, message); },
+	warning(title: string, message?: string) { toastStore.add('warning', title, message, 8000); },
+	crash(title: string, message?: string) { toastStore.add('error', title, message, 0); },
+};

@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { toasts } from '$lib/stores/toast';
-	import { Clock, Plus, Play, Square, Trash2, Loader2, RefreshCw, Terminal, HardDrive, Search } from '@lucide/svelte';
+	import { Clock, Plus, RefreshCw, Trash2, Loader2, Terminal, HardDrive, Search, Pencil } from '@lucide/svelte';
 
 	type ScheduledTask = {
 		id: string;
@@ -24,14 +24,40 @@
 	let loading = $state(true);
 	let error = $state('');
 	let showCreate = $state(false);
+	let editingId = $state<string | null>(null);
 
 	const serverId = $derived($page.params.id);
 
-	let newName = $state('');
-	let newType: 'cron' | 'interval' = $state('interval');
-	let newInterval = $state('3600');
-	let newAction: ScheduledTask['action'] = $state('backup');
-	let newPayload = $state('');
+	let formName = $state('');
+	let formDesc = $state('');
+	let formType: 'cron' | 'interval' = $state('interval');
+	let formInterval = $state('3600');
+	let formCron = $state('0 0 * * *');
+	let formAction: ScheduledTask['action'] = $state('backup');
+	let formPayload = $state('');
+
+	function resetForm() {
+		formName = '';
+		formDesc = '';
+		formType = 'interval';
+		formInterval = '3600';
+		formCron = '0 0 * * *';
+		formAction = 'backup';
+		formPayload = '';
+		editingId = null;
+	}
+
+	function fillForm(s: ScheduledTask) {
+		formName = s.name;
+		formDesc = s.description;
+		formType = s.type;
+		formInterval = String(s.intervalSeconds ?? 3600);
+		formCron = s.cronExpression || '0 0 * * *';
+		formAction = s.action;
+		formPayload = s.payload;
+		editingId = s.id;
+		showCreate = true;
+	}
 
 	onMount(() => loadSchedules());
 
@@ -49,28 +75,38 @@
 		}
 	}
 
-	async function createSchedule() {
-		if (!newName.trim()) { toasts.error('Name required'); return; }
+	async function saveSchedule() {
+		if (!formName.trim()) { toasts.error('Name required'); return; }
+		const isEdit = editingId !== null;
 		try {
-			const res = await fetch(`/api/servers/${serverId}/schedules`, {
-				method: 'POST',
+			const body: Record<string, unknown> = {
+				name: formName.trim(),
+				description: formDesc.trim(),
+				type: formType,
+				action: formAction,
+				payload: formPayload.trim(),
+			};
+			if (formType === 'interval') {
+				body.intervalSeconds = parseInt(formInterval, 10);
+			} else {
+				body.cronExpression = formCron.trim();
+			}
+
+			const url = isEdit
+				? `/api/servers/${serverId}/schedules/${editingId}`
+				: `/api/servers/${serverId}/schedules`;
+			const res = await fetch(url, {
+				method: isEdit ? 'PATCH' : 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					name: newName.trim(),
-					type: newType,
-					intervalSeconds: newType === 'interval' ? parseInt(newInterval, 10) : undefined,
-					action: newAction,
-					payload: newPayload.trim()
-				})
+				body: JSON.stringify(body),
 			});
-			if (!res.ok) throw new Error('Failed to create');
-			toasts.success('Schedule created');
+			if (!res.ok) throw new Error(isEdit ? 'Failed to update' : 'Failed to create');
+			toasts.success(isEdit ? 'Schedule updated' : 'Schedule created');
 			showCreate = false;
-			newName = '';
-			newPayload = '';
+			resetForm();
 			loadSchedules();
 		} catch (e) {
-			toasts.error('Create failed', e instanceof Error ? e.message : '');
+			toasts.error(isEdit ? 'Update failed' : 'Create failed', e instanceof Error ? e.message : '');
 		}
 	}
 
@@ -135,7 +171,7 @@
 		</div>
 		<button
 			class="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-			onclick={() => showCreate = !showCreate}
+			onclick={() => { resetForm(); showCreate = !showCreate; }}
 		>
 			<Plus class="h-3.5 w-3.5" />
 			New Schedule
@@ -144,40 +180,55 @@
 
 	{#if showCreate}
 		<div class="mb-4 rounded-lg border border-border bg-card p-4">
-			<h3 class="text-sm font-semibold text-foreground mb-3">Create Schedule</h3>
+			<h3 class="text-sm font-semibold text-foreground mb-3">
+				{editingId ? 'Edit Schedule' : 'Create Schedule'}
+			</h3>
 			<div class="grid grid-cols-2 gap-3">
 				<div class="col-span-2">
 					<label for="sched-name" class="mb-1 block text-xs text-muted-foreground">Name</label>
-					<input id="sched-name" bind:value={newName} placeholder="Daily backup" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
+					<input id="sched-name" bind:value={formName} placeholder="Daily backup" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
+				</div>
+				<div class="col-span-2">
+					<label for="sched-desc" class="mb-1 block text-xs text-muted-foreground">Description</label>
+					<input id="sched-desc" bind:value={formDesc} placeholder="Optional description" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
 				</div>
 				<div>
 					<label for="sched-type" class="mb-1 block text-xs text-muted-foreground">Type</label>
-					<select id="sched-type" bind:value={newType} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
+					<select id="sched-type" bind:value={formType} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
 						<option value="interval">Interval</option>
 						<option value="cron">Cron</option>
 					</select>
 				</div>
 				<div>
 					<label for="sched-action" class="mb-1 block text-xs text-muted-foreground">Action</label>
-					<select id="sched-action" bind:value={newAction} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
+					<select id="sched-action" bind:value={formAction} class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary">
 						<option value="backup">Backup</option>
 						<option value="restart">Restart</option>
 						<option value="command">Command</option>
 						<option value="update_check">Update Check</option>
 					</select>
 				</div>
+				{#if formType === 'interval'}
+					<div>
+						<label for="sched-interval" class="mb-1 block text-xs text-muted-foreground">Interval (seconds)</label>
+						<input id="sched-interval" bind:value={formInterval} placeholder="3600" type="number" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
+					</div>
+				{:else}
+					<div>
+						<label for="sched-cron" class="mb-1 block text-xs text-muted-foreground">Cron Expression</label>
+						<input id="sched-cron" bind:value={formCron} placeholder="0 0 * * *" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
+					</div>
+				{/if}
 				<div>
-					<label for="sched-interval" class="mb-1 block text-xs text-muted-foreground">Interval (seconds)</label>
-					<input id="sched-interval" bind:value={newInterval} placeholder="3600" type="number" class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
-				</div>
-				<div>
-					<label for="sched-payload" class="mb-1 block text-xs text-muted-foreground">Payload (command, etc.)</label>
-					<input id="sched-payload" bind:value={newPayload} placeholder="/say Restarting..." class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
+					<label for="sched-payload" class="mb-1 block text-xs text-muted-foreground">Payload</label>
+					<input id="sched-payload" bind:value={formPayload} placeholder="/say Restarting..." class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:border-primary" />
 				</div>
 			</div>
 			<div class="flex gap-2 mt-3">
-				<button class="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90" onclick={createSchedule}>Create</button>
-				<button class="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground" onclick={() => showCreate = false}>Cancel</button>
+				<button class="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90" onclick={saveSchedule}>
+					{editingId ? 'Update' : 'Create'}
+				</button>
+				<button class="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground" onclick={() => { showCreate = false; resetForm(); }}>Cancel</button>
 			</div>
 		</div>
 	{/if}
@@ -203,7 +254,10 @@
 					<div class="flex-1 min-w-0">
 						<h3 class="text-sm font-medium text-foreground">{sched.name}</h3>
 						<p class="text-xs text-muted-foreground mt-0.5">
-							{sched.type === 'interval' ? `Every ${formatInterval(sched.intervalSeconds)}` : sched.cronExpression}
+							{sched.type === 'interval'
+								? `Every ${formatInterval(sched.intervalSeconds)}`
+								: sched.cronExpression
+							}
 							· {sched.action.replace('_', ' ')}
 							{sched.payload ? `· "${sched.payload}"` : ''}
 						</p>
@@ -213,6 +267,13 @@
 						</p>
 					</div>
 					<div class="flex items-center gap-1.5">
+						<button
+							class="rounded-md border border-border px-2 py-1.5 text-xs hover:text-foreground text-muted-foreground"
+							onclick={() => { fillForm(sched); }}
+							title="Edit"
+						>
+							<Pencil class="h-3.5 w-3.5" />
+						</button>
 						<button
 							class="rounded-md border border-border px-2 py-1.5 text-xs {sched.enabled ? 'text-green-400' : 'text-muted-foreground'} hover:text-foreground"
 							onclick={() => toggleSchedule(sched.id, !sched.enabled)}

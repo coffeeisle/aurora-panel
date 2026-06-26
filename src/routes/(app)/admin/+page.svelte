@@ -43,7 +43,24 @@
 
 	onMount(() => {
 		loadData();
+		loadStats();
 	});
+
+	async function loadStats() {
+		try {
+			const res = await fetch('/api/admin/stats');
+			if (res.ok) {
+				const stats = await res.json();
+				systemInfo = {
+					dbPath: 'SQLite (aurora.db)',
+					serverCount: stats.totalServers,
+					nodeCount: stats.totalNodes,
+					userCount: stats.totalUsers,
+					version: '1.0.0'
+				};
+			}
+		} catch {}
+	}
 
 	async function loadData() {
 		loading = true;
