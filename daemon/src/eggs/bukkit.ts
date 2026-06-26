@@ -60,7 +60,16 @@ export const bukkitEgg: EggDefinition = {
 
 			return true;
 		} catch (e) {
-			console.error('[Bukkit] Download failed:', e);
+			const msg = e instanceof Error ? e.message : String(e);
+			if (msg.includes('timeout')) {
+				console.error('[Bukkit] BuildTools timed out (5 min limit). Java may need more memory or the server is slow.');
+			} else if (msg.includes('java: not found') || msg.includes('ENOENT')) {
+				console.error('[Bukkit] Java is required to run BuildTools. Install a JDK (temurin-21 recommended).');
+			} else if (msg.includes('exit code')) {
+				console.error(`[Bukkit] BuildTools failed for MC ${version}. This version may not be supported by BuildTools.`);
+			} else {
+				console.error(`[Bukkit] Download failed for ${version}:`, e);
+			}
 			return false;
 		}
 	},

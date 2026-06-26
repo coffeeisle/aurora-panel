@@ -6,6 +6,7 @@ import { servers, installedMods } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDaemon, daemonFetch } from '$lib/server/daemon-client';
+import { emitModrinthChange } from '$lib/server/io';
 
 export const POST: RequestHandler = async ({ params, request }: { params: Record<string, string>; request: Request }) => {
 	const serverId = params.id;
@@ -90,6 +91,8 @@ export const POST: RequestHandler = async ({ params, request }: { params: Record
 						title: depResolved.version.name,
 						installedAt: new Date(),
 					}).run();
+
+					emitModrinthChange(serverId, 'installed', { projectId: dep.project_id, projectType: pType, versionNumber: depResolved.version.version_number });
 				} catch {
 					// Skip unresolvable dependencies
 				}
@@ -109,6 +112,8 @@ export const POST: RequestHandler = async ({ params, request }: { params: Record
 			title: resolved.version.name,
 			installedAt: new Date(),
 		}).run();
+
+		emitModrinthChange(serverId, 'installed', { projectId, projectType: pType, versionNumber: resolved.version.version_number });
 
 		return json({
 			success: true,

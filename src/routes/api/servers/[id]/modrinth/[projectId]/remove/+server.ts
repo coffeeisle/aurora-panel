@@ -4,6 +4,7 @@ import { db } from '$lib/server/db';
 import { installedMods, servers } from '$lib/server/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { getDaemon, daemonFetch, daemonDeleteEntry } from '$lib/server/daemon-client';
+import { emitModrinthChange } from '$lib/server/io';
 import { getTargetFolder, getVersion } from '$lib/server/modrinth';
 
 export const POST: RequestHandler = async ({ params }: { params: Record<string, string> }) => {
@@ -35,9 +36,13 @@ export const POST: RequestHandler = async ({ params }: { params: Record<string, 
 		}
 	}
 
+	const removedType = installed[0]?.projectType || 'mod';
+
 	db.delete(installedMods)
 		.where(and(eq(installedMods.serverId, serverId), eq(installedMods.projectId, projectId)))
 		.run();
+
+	emitModrinthChange(serverId, 'removed', { projectId, projectType: removedType });
 
 	return json({ success: true, removed: installed.length });
 };

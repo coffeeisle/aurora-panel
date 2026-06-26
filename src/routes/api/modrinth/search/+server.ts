@@ -16,7 +16,6 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	const gameVersions: string[] = [];
 	const loaders: string[] = [];
-	const categories: string[] = [];
 	let environment = '';
 
 	for (const facet of facets) {
@@ -24,9 +23,7 @@ export const GET: RequestHandler = async ({ url }) => {
 			if (f.startsWith('versions:')) {
 				gameVersions.push(...f.replace('versions:', '').split('|'));
 			} else if (f.startsWith('categories:')) {
-				const val = f.replace('categories:', '');
-				loaders.push(val);
-				categories.push(val);
+				loaders.push(f.replace('categories:', ''));
 			} else if (f.startsWith('client_side:')) {
 				environment = 'client';
 			} else if (f.startsWith('server_side:')) {
@@ -35,6 +32,6 @@ export const GET: RequestHandler = async ({ url }) => {
 		}
 	}
 
-	const result = await searchMods({ query, projectType, gameVersions, loaders, categories, environment, offset, limit });
+	const result = await searchMods({ query, projectType, gameVersions, loaders, categories: [], environment, offset, limit });
 	return json(result);
 };

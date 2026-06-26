@@ -1,27 +1,11 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: aurora
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-      POSTGRES_DB: aurora
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aurora"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    profiles:
-      - with-postgres
-    networks:
-      - aurora
-
+  # ── Aurora Panel ──
   panel:
     build:
       context: .
       dockerfile: Dockerfile
+    image: aurora-panel:latest
+    container_name: aurora-panel
     ports:
       - "${PANEL_PORT:-3000}:3000"
     volumes:
@@ -29,27 +13,30 @@ services:
       - server-data:/app/servers
     environment:
       - NODE_ENV=production
+      - PORT=3000
+      - BODY_SIZE_LIMIT=Infinity
       - DATABASE_URL=${DATABASE_URL:-file:./data/aurora.db}
       - AUTH_SECRET=${AUTH_SECRET:?AUTH_SECRET is required}
       - DAEMON_JWT_SECRET=${DAEMON_JWT_SECRET:?DAEMON_JWT_SECRET is required}
-      - PUBLIC_APP_URL=${PUBLIC_APP_URL:-https://panel.example.com}
-      - PORT=3000
-      - BODY_SIZE_LIMIT=Infinity
+      - PUBLIC_APP_URL=${PUBLIC_APP_URL:-http://localhost:3000}
     restart: unless-stopped
     stop_grace_period: 30s
-    user: "1000:1000"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "http://localhost:3000/login"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/login"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      start_period: 10s
+      retries: 5
     networks:
       - aurora
 
+  # ── Aurora Daemon ──
   daemon:
     build:
       context: ./daemon
       dockerfile: Dockerfile
+    image: aurora-daemon:latest
+    container_name: aurora-daemon
     ports:
       - "${DAEMON_PORT:-8443}:8443"
     volumes:
@@ -66,19 +53,41 @@ services:
       - SERVERS_DIR=/servers
       - DATA_DIR=/data
       - DOCKER_NETWORK=aurora
-      - AUTO_RESTART=true
-      - MAX_CRASH_RESTARTS=3
+      - AUTO_RESTART=${AUTO_RESTART:-true}
+      - MAX_CRASH_RESTARTS=${MAX_CRASH_RESTARTS:-3}
     restart: unless-stopped
     stop_grace_period: 15s
     depends_on:
       panel:
         condition: service_started
-    user: "1000:1000"
     networks:
       - aurora
 
+  # ── PostgreSQL (Optional: enable with --profile with-postgres) ──
+  postgres:
+    image: postgres:16-alpine
+    profiles:
+      - with-postgres
+    environment:
+      POSTGRES_USER: aurora
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: aurora
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aurora"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aurora
+
+  # ── Caddy Reverse Proxy (Optional: enable with --profile with-caddy) ──
   caddy:
     image: caddy:2-alpine
+    profiles:
+      - with-caddy
     ports:
       - "80:80"
       - "443:443"
@@ -90,8 +99,6 @@ services:
       - DOMAIN=${DOMAIN:-panel.example.com}
       - PANEL_PORT=3000
     restart: unless-stopped
-    profiles:
-      - with-caddy
     depends_on:
       - panel
     networks:

@@ -13,7 +13,6 @@ let running = false;
 export function startScheduler() {
 	if (intervalHandle) return;
 	console.log('[Scheduler] Starting schedule poller every 30s');
-	void tick();
 	intervalHandle = setInterval(tick, POLL_INTERVAL);
 }
 

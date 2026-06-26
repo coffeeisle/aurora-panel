@@ -7,7 +7,27 @@
 - **Minimum**: 2 CPU cores, 4GB RAM, 20GB disk
 - **Recommended**: 4 CPU cores, 8GB RAM, 50GB+ SSD
 
-## Quick Start (Docker Compose)
+## Quick Install (Interactive)
+
+```bash
+# One-command installer (requires curl or wget):
+curl -fsSL https://raw.githubusercontent.com/your-org/aurora-panel/main/install.sh | bash
+
+# Or download and run manually:
+wget -qO- https://raw.githubusercontent.com/your-org/aurora-panel/main/install.sh | bash
+```
+
+The installer will:
+1. Check prerequisites (Docker, RAM, disk space, ports)
+2. Ask if you want Panel + Daemon, Panel only, or Daemon only
+3. Clone the repository to `~/aurora-panel`
+4. Generate secure secrets for `AUTH_SECRET` and `DAEMON_JWT_SECRET`
+5. Build and start Docker containers
+6. Wait for the panel to be ready
+
+After installation, register your first admin account at `http://your-server:3000/register`.
+
+## Manual Setup (Docker Compose)
 
 ```bash
 # 1. Clone the repository
@@ -18,8 +38,8 @@ cd aurora-panel
 cp .env.example .env
 # Edit .env — set AUTH_SECRET and DAEMON_JWT_SECRET (use openssl rand -hex 32)
 
-# 3. Start the panel
-docker compose up -d panel daemon
+# 3. Start the panel and daemon
+docker compose up -d
 
 # 4. Access at http://your-server:3000
 # Register the first admin account at /register
@@ -74,21 +94,36 @@ docker compose --profile with-postgres --profile with-caddy up -d
 ```
                           Internet
                              |
-                          [Caddy:443] (optional, with SSL)
+                         [Caddy:443] (optional, with SSL)
                              |
-                     [Panel:3000] (SvelteKit)
-                        /          \
-                 [Daemon:8443]   [Postgres:5432] (optional)
-                       |
-              [Docker Engine]
-              /     |     \
-          Server1 Server2 ServerN
+                    [Panel:3000] (SvelteKit)
+                       /          \
+                [Daemon:8443]   [Postgres:5432] (optional)
+                      |
+             [Docker Engine]
+             /     |     \
+         Server1 Server2 ServerN
 ```
 
 - **Panel**: SvelteKit app — serves the UI and API
 - **Daemon**: Node.js service on each host — manages Docker containers
 - **Communication**: Panel ↔ Daemon via JWT-authenticated Socket.IO + REST
 - **Security**: No direct browser access to daemon; everything proxied through the panel
+
+## Version Coverage
+
+| Platform | Range | Source |
+|----------|-------|--------|
+| Vanilla | All releases, snapshots, beta, alpha | Mojang version manifest |
+| Paper | 1.16.5+ (all builds) | PaperMC API |
+| Purpur | 1.16.5+ (all builds) | Purpur API |
+| Fabric | 1.14+ (with latest loader) | Fabric Meta API |
+| Forge | 1.1+ (all releases) | Forge Promotions API |
+| NeoForge | 1.20.1+ | NeoForge Maven |
+| Quilt | 1.14+ (with latest loader) | Quilt Meta API |
+| Spigot | 1.2.5+ (auto-extended from Mojang) | BuildTools + Mojang manifest |
+| Folia | 1.20+ (all builds) | PaperMC API |
+| Bukkit | 1.2.5+ (auto-extended from Mojang) | BuildTools + Mojang manifest |
 
 ## Server Lifecycle
 
@@ -99,23 +134,11 @@ docker compose --profile with-postgres --profile with-caddy up -d
 5. **Stop**: Graceful stop (stop command → 10s timeout → force remove)
 6. **Auto-Restart**: On crash, daemon auto-restarts up to `MAX_CRASH_RESTARTS` times
 
-## Supported Server Software
-
-- **Vanilla** — Mojang official server (via Mojang version manifest)
-- **Paper** — High-performance (via PaperMC API)
-- **Purpur** — Fork of Paper with more options (via Purpur API)
-- **Fabric** — Lightweight mod loader (via Fabric meta API)
-- **Forge** — Original mod loader (via Forge maven)
-- **NeoForge** — Next-gen Forge fork (via NeoForge maven)
-- **Quilt** — Modern Fabric fork (via Quilt meta API)
-- **Spigot** — Widely-used (via BuildTools)
-- **Folia** — Regionized multithreading (via PaperMC API)
-
 ## Security Considerations
 
 - Run everything behind Caddy with automatic SSL in production
 - Change `AUTH_SECRET` and `DAEMON_JWT_SECRET` immediately
-- Use non-root users in containers (set `user: "1000:1000"`)
+- The panel container runs as a non-root user
 - Restrict `/var/run/docker.sock` access to only the daemon container
 - Use PostgreSQL for multi-instance deployments
 - Enable fail2ban or similar on the host
@@ -125,8 +148,8 @@ docker compose --profile with-postgres --profile with-caddy up -d
 
 - **Daemon health**: Available at `GET /health` on the daemon port
 - **System stats**: CPU, memory, disk usage sent to panel every 5 seconds
-- **Crash alerts**: When a server crashes, the panel shows a toast notification
-- **Container health**: Checked every 10 seconds
+- **Crash alerts**: Toast notification when a server crashes
+- **Container health**: Checked every 10 seconds by the daemon
 
 ## Troubleshooting
 
@@ -144,9 +167,18 @@ docker compose --profile with-postgres --profile with-caddy up -d
 - Check permissions on the server data volume
 - Verify the server directory exists in `/servers/<serverId>/`
 
+**Modrinth search shows no results**:
+- Verify the server has a game version and loader configured
+- Check that the Modrinth API is accessible from the panel
+- Some combinations of version + loader may have no matching mods
+
 ## Upgrading
 
 ```bash
+# Using the installer:
+cd ~/aurora-panel && git pull && docker compose build --no-cache && docker compose up -d
+
+# Or manually:
 git pull
 docker compose build --no-cache
 docker compose up -d
