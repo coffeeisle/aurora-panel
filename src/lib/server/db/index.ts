@@ -29,7 +29,7 @@ sqlite.exec(`
 		game_version TEXT NOT NULL DEFAULT 'latest',
 		loader TEXT NOT NULL DEFAULT '',
 		platform TEXT NOT NULL DEFAULT '',
-		status TEXT NOT NULL DEFAULT 'installing' CHECK(status IN ('installing','installed','suspended','error')),
+		status TEXT NOT NULL DEFAULT 'installing' CHECK(status IN ('installing','installed','suspended','error','running','stopped','starting','stopping','restarting')),
 		process_type TEXT NOT NULL DEFAULT 'docker' CHECK(process_type IN ('docker','bare')),
 		docker_image TEXT,
 		startup_command TEXT NOT NULL,

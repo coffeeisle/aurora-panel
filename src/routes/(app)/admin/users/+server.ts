@@ -5,7 +5,15 @@ import { users } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 
-export const GET: RequestHandler = async () => {
+function requireAdmin({ locals }: { locals: App.Locals }) {
+	if (locals.user?.role !== 'admin') {
+		return json({ error: 'Forbidden' }, { status: 403 });
+	}
+}
+
+export const GET: RequestHandler = async ({ locals }) => {
+	const forbidden = requireAdmin({ locals });
+	if (forbidden) return forbidden;
 	const allUsers = db.select({
 		id: users.id,
 		username: users.username,
@@ -16,7 +24,9 @@ export const GET: RequestHandler = async () => {
 	return json(allUsers);
 };
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, locals }) => {
+	const forbidden = requireAdmin({ locals });
+	if (forbidden) return forbidden;
 	try {
 		const { username, email, password, role } = await request.json();
 		if (!username || !email || !password) {
@@ -46,7 +56,9 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 };
 
-export const DELETE: RequestHandler = async ({ url }) => {
+export const DELETE: RequestHandler = async ({ url, locals }) => {
+	const forbidden = requireAdmin({ locals });
+	if (forbidden) return forbidden;
 	try {
 		const id = url.searchParams.get('id');
 		if (!id) {
@@ -59,7 +71,9 @@ export const DELETE: RequestHandler = async ({ url }) => {
 	}
 };
 
-export const PATCH: RequestHandler = async ({ request, url }) => {
+export const PATCH: RequestHandler = async ({ request, url, locals }) => {
+	const forbidden = requireAdmin({ locals });
+	if (forbidden) return forbidden;
 	try {
 		const id = url.searchParams.get('id');
 		if (!id) {

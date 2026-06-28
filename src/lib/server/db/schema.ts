@@ -26,7 +26,7 @@ export const servers = sqliteTable('servers', {
 	loader: text('loader').notNull().default(''),
 	platform: text('platform').notNull().default(''),
 	status: text('status', {
-		enum: ['installing', 'installed', 'suspended', 'error']
+		enum: ['installing', 'installed', 'suspended', 'error', 'running', 'stopped', 'starting', 'stopping', 'restarting']
 	})
 		.notNull()
 		.default('installing'),

@@ -2,8 +2,9 @@
 	import { onMount } from 'svelte';
 	import { cn } from '$lib/utils/utils';
 	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import type { Server } from '$lib/types/server';
-	import { Server as ServerIcon, LayoutDashboard, HardDrive, Settings, Users, ChevronDown, Circle, Plus, PanelRightClose, PanelRightOpen } from '@lucide/svelte';
+	import { Server as ServerIcon, LayoutDashboard, HardDrive, Settings, Users, ChevronDown, Circle, Plus, PanelRightClose, PanelRightOpen, LogOut } from '@lucide/svelte';
 
 	let serversExpanded = $state(true);
 	let collapsed = $state(false);
@@ -15,6 +16,11 @@
 		{ href: '/admin', label: 'Administration', icon: Users },
 		{ href: '/settings', label: 'Settings', icon: Settings }
 	];
+
+	async function handleLogout() {
+		await fetch('/api/auth/logout', { method: 'POST' });
+		goto('/login');
+	}
 
 	function isActive(href: string) {
 		return $page.url.pathname === href || $page.url.pathname.startsWith(href + '/');
@@ -118,14 +124,25 @@
 		{/if}
 	</nav>
 
-	{#if !collapsed}
+	{#if collapsed}
+		<div class="border-t border-sidebar-border px-2 py-2">
+			<button
+				onclick={handleLogout}
+				class="flex w-full items-center justify-center rounded-lg px-2 py-2 text-sidebar-foreground/60 hover:bg-sidebar-muted hover:text-sidebar-foreground transition-colors"
+				title="Sign out"
+			>
+				<LogOut class="h-4 w-4 shrink-0" />
+			</button>
+		</div>
+	{:else}
 		<div class="border-t border-sidebar-border px-3 py-3">
-			<div class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/60 hover:bg-sidebar-muted transition-colors cursor-default">
-				<div class="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-					A
-				</div>
-				<span class="truncate">Admin</span>
-			</div>
+			<button
+				onclick={handleLogout}
+				class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/60 hover:bg-sidebar-muted hover:text-sidebar-foreground transition-colors"
+			>
+				<LogOut class="h-4 w-4 shrink-0" />
+				<span>Sign out</span>
+			</button>
 		</div>
 	{/if}
 </aside>
