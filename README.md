@@ -18,7 +18,7 @@ A modern, self-hosted game server management panel with deep Modrinth integratio
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/coffeeisle/aurora-panel/main/install.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/coffeeisle/aurora-panel/refs/heads/master/install.sh)
 ```
 
 The interactive installer will:

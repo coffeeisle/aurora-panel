@@ -11,10 +11,10 @@
 
 ```bash
 # One-command installer (requires curl or wget):
-curl -fsSL https://raw.githubusercontent.com/your-org/aurora-panel/main/install.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/coffeeisle/aurora-panel/refs/heads/master/install.sh)
 
 # Or download and run manually:
-wget -qO- https://raw.githubusercontent.com/your-org/aurora-panel/main/install.sh | bash
+wget -qO- https://raw.githubusercontent.com/coffeeisle/aurora-panel/refs/heads/master/install.sh | bash
 ```
 
 The installer will:
@@ -31,7 +31,7 @@ After installation, register your first admin account at `http://your-server:300
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/aurora-panel.git
+git clone https://github.com/coffeeisle/aurora-panel.git
 cd aurora-panel
 
 # 2. Copy and configure environment

@@ -3,6 +3,7 @@ set -euo pipefail
 
 AURORA_VERSION="0.1.0"
 AURORA_REPO="https://github.com/coffeeisle/aurora-panel.git"
+AURORA_BRANCH="master"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 info()  { echo -e "${BLUE}[INFO]${NC} $1"; }
@@ -63,7 +64,7 @@ echo "Select installation mode:"
 echo "  1) Panel + Daemon (recommended)"
 echo "  2) Panel only"
 echo "  3) Daemon only"
-read -rp "Choice [1-3]: " INSTALL_MODE
+read -rp "Choice [1-3]: " INSTALL_MODE </dev/tty
 INSTALL_MODE="${INSTALL_MODE:-1}"
 
 case "$INSTALL_MODE" in
@@ -75,7 +76,7 @@ esac
 
 # ── Installation directory ──
 DEFAULT_DIR="$HOME/aurora-panel"
-read -rp "Installation directory [${DEFAULT_DIR}]: " INSTALL_DIR
+read -rp "Installation directory [${DEFAULT_DIR}]: " INSTALL_DIR </dev/tty
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_DIR}"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
@@ -86,7 +87,7 @@ if [[ -d ".git" ]]; then
 	git pull --ff-only 2>/dev/null || warn "Could not git pull (continuing with existing)"
 elif command -v git &>/dev/null; then
 	info "Cloning repository..."
-	git clone --depth=1 "$AURORA_REPO" . 2>/dev/null || { err "Failed to clone. Check your connection or install manually."; exit 1; }
+	git clone --depth=1 --branch "$AURORA_BRANCH" "$AURORA_REPO" . 2>/dev/null || { err "Failed to clone. Check your connection or install manually."; exit 1; }
 	ok "Repository cloned"
 else
 	err "git not available and no existing installation found."
@@ -116,7 +117,7 @@ fi
 if [[ "$INSTALL_MODE" == "1" || "$INSTALL_MODE" == "2" ]]; then
 	if $PORT_3000; then
 		warn "Port 3000 is in use. Enter a different panel port:"
-		read -rp "Panel port [3001]: " PANEL_PORT
+		read -rp "Panel port [3001]: " PANEL_PORT </dev/tty
 		PANEL_PORT="${PANEL_PORT:-3001}"
 		if [[ "$OSTYPE" == "darwin"* ]]; then
 			sed -i '' "s/PANEL_PORT=.*/PANEL_PORT=${PANEL_PORT}/" .env

@@ -3,6 +3,7 @@ set -euo pipefail
 
 AURORA_VERSION="0.1.0"
 AURORA_REPO="https://github.com/coffeeisle/aurora-panel"
+AURORA_BRANCH="master"
 INSTALL_DIR=""
 COMPOSE_FILE=""
 
@@ -244,7 +245,7 @@ cmd_update() {
 	fi
 
 	info "Pulling latest code from $AURORA_REPO..."
-	git pull --ff-only origin main 2>/dev/null || git pull --ff-only 2>/dev/null || {
+	git pull --ff-only origin "$AURORA_BRANCH" 2>/dev/null || git pull --ff-only 2>/dev/null || {
 		err "Failed to pull latest code. Check your network or resolve conflicts manually."
 		exit 1
 	}
