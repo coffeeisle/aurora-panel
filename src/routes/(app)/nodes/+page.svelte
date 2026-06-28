@@ -4,8 +4,8 @@
 	import { toasts } from '$lib/stores/toast';
 	import { z } from 'zod';
 	import {
-		HardDrive, Wifi, WifiOff, Server, Cpu, MemoryStick, Activity, Plus,
-		Trash2, Edit, X, Circle, ExternalLink, ArrowRight, Check, Sparkles
+		HardDrive, Server, Cpu, MemoryStick, Activity, Plus,
+		Trash2, Edit, Circle, ExternalLink, ArrowRight, Check, Sparkles, Loader2
 	} from '@lucide/svelte';
 
 	const nodeSchema = z.object({
@@ -14,6 +14,7 @@
 		port: z.coerce.number().int().min(1).max(65535),
 	});
 
+	let loading = $state(true);
 	let showRegisterForm = $state(false);
 	let editingId = $state<string | null>(null);
 	let newName = $state('');
@@ -28,6 +29,7 @@
 			const res = await fetch('/api/nodes');
 			if (res.ok) dbNodes = await res.json();
 		} catch { /* ignore */ }
+		loading = false;
 	});
 
 	const daemons = $derived(Array.from($daemonStore.values()).sort((a, b) => a.id.localeCompare(b.id)));
@@ -149,6 +151,10 @@
 			default: return 'text-muted-foreground';
 		}
 	}
+
+	function isRegistered(id: string) {
+		return dbNodes.some(n => n.id === id);
+	}
 </script>
 
 <div class="flex h-full flex-col">
@@ -157,7 +163,7 @@
 			<h1 class="text-lg font-bold text-foreground">Nodes</h1>
 			<p class="text-xs text-muted-foreground mt-0.5">Manage connected daemon nodes</p>
 		</div>
-		{#if hasDbNodes || daemons.length > 0}
+		{#if !loading && (hasDbNodes || daemons.length > 0)}
 			<button
 				class="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
 				onclick={() => { resetForm(); showRegisterForm = true; }}
@@ -223,14 +229,19 @@
 	{/if}
 
 	<div class="flex-1 overflow-y-auto space-y-3">
-		{#if !hasDbNodes && unregisteredDaemons.length > 0}
+		{#if loading}
+			<div class="flex items-center justify-center py-16 text-sm text-muted-foreground">
+				<Loader2 class="mr-2 h-4 w-4 animate-spin" />
+				Loading nodes...
+			</div>
+		{:else if unregisteredDaemons.length > 0}
 			<div class="rounded-lg border border-primary/30 bg-primary/5 p-5">
 				<div class="flex items-center gap-3 mb-3">
 					<Sparkles class="h-5 w-5 text-primary" />
 					<h2 class="text-sm font-semibold text-foreground">Daemon Detected</h2>
 				</div>
 				<p class="text-xs text-muted-foreground mb-4">
-					A daemon node is connected but not registered. Register it to start managing servers.
+					A daemon node is connected but not yet registered. Click Register to add it.
 				</p>
 				{#each unregisteredDaemons as node}
 					<div class="mb-2 flex items-center justify-between rounded-md border border-border bg-card p-3">
@@ -253,9 +264,7 @@
 					</div>
 				{/each}
 			</div>
-		{/if}
-
-		{#if !hasDbNodes && daemons.length === 0}
+		{:else if !hasDbNodes && daemons.length === 0}
 			<div class="flex flex-col items-center justify-center py-16 text-sm text-muted-foreground">
 				<HardDrive class="mb-3 h-10 w-10 opacity-30" />
 				<p class="font-medium">No nodes configured</p>
@@ -264,21 +273,20 @@
 					If you installed Panel + Daemon together, the daemon should connect automatically.
 				</p>
 				<div class="mt-6 space-y-2 text-xs">
-					<div class="rounded-lg border border-border bg-card p-3">
+					<div class="rounded-lg border border-border bg-card p-3 max-w-xs">
 						<p class="font-medium text-foreground mb-1">Docker Compose setup</p>
 						<p class="text-muted-foreground">
 							Use host <span class="font-mono">aurora-daemon</span> and port <span class="font-mono">8443</span>.
-							The JWT secret is in your <span class="font-mono">.env</span> file.
 						</p>
 					</div>
-					<div class="rounded-lg border border-border bg-card p-3">
+					<div class="rounded-lg border border-border bg-card p-3 max-w-xs">
 						<p class="font-medium text-foreground mb-1">Remote daemon</p>
 						<p class="text-muted-foreground">
 							Install the daemon on another machine and enter its IP/hostname.
 						</p>
 					</div>
 					<button
-						class="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors mx-auto mt-3"
+						class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors mt-3"
 						onclick={() => { resetForm(); showRegisterForm = true; }}
 					>
 						<Plus class="h-3.5 w-3.5" />
@@ -301,7 +309,7 @@
 										<Circle class="h-1.5 w-1.5 fill-current" />
 										{node.connected ? 'Online' : 'Offline'}
 									</span>
-									{#if !dbNodes.some(n => n.id === node.id)}
+									{#if !isRegistered(node.id)}
 										<span class="rounded-full bg-yellow-500/10 px-2 py-0.5 text-[10px] font-medium text-yellow-400">Unregistered</span>
 									{/if}
 								</div>
@@ -313,7 +321,7 @@
 							</div>
 						</div>
 						<div class="flex items-center gap-1">
-							{#if !dbNodes.some(n => n.id === node.id)}
+							{#if !isRegistered(node.id)}
 								<button
 									class="rounded-md bg-primary px-2 py-1 text-[10px] font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
 									onclick={() => autoRegister(node)}
@@ -399,6 +407,35 @@
 							</div>
 						</div>
 					{/if}
+				</div>
+			{/each}
+
+			{#each dbNodes.filter(n => !daemons.some(d => d.id === n.id)) as dbNode}
+				<div class="rounded-lg border border-border bg-card opacity-60">
+					<div class="flex items-start justify-between p-4 pb-3">
+						<div class="flex items-center gap-3">
+							<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+								<HardDrive class="h-5 w-5 text-muted-foreground" />
+							</div>
+							<div>
+								<div class="flex items-center gap-2">
+									<h3 class="text-sm font-semibold text-foreground">{dbNode.name}</h3>
+									<span class="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-red-500/10 text-red-400">
+										<Circle class="h-1.5 w-1.5 fill-current" />
+										Offline
+									</span>
+								</div>
+								<p class="text-xs text-muted-foreground font-mono mt-0.5">{dbNode.host}:{dbNode.port}</p>
+							</div>
+						</div>
+						<button
+							class="rounded-md p-1.5 text-muted-foreground hover:text-red-400 hover:bg-muted transition-colors"
+							title="Remove"
+							onclick={() => removeNode(dbNode.id)}
+						>
+							<Trash2 class="h-3.5 w-3.5" />
+						</button>
+					</div>
 				</div>
 			{/each}
 		{/if}

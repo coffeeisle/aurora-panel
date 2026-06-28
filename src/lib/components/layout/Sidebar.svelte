@@ -103,10 +103,11 @@
 							<Circle
 								class={cn(
 									'h-2 w-2 shrink-0 fill-current',
-									srv.status === 'installed' ? 'text-green-500' :
-									srv.status === 'suspended' ? 'text-yellow-500' :
+									srv.status === 'running' || srv.status === 'installed' ? 'text-green-500' :
+									srv.status === 'starting' || srv.status === 'restarting' ? 'text-blue-500 animate-pulse' :
 									srv.status === 'error' ? 'text-red-500' :
-									'text-blue-500 animate-pulse'
+									srv.status === 'suspended' ? 'text-yellow-500' :
+									'text-muted-foreground'
 								)}
 							/>
 							<span class="truncate">{srv.name}</span>
