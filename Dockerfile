@@ -1,14 +1,16 @@
-FROM oven/bun:1 AS builder
+FROM node:22-slim AS builder
 WORKDIR /app
-COPY package.json bun.lock .npmrc ./
-RUN bun install --frozen-lockfile --production=false
+RUN apt-get update -qq && apt-get install -y -qq python3 make gcc g++ 2>/dev/null | tail -3
+COPY package.json package-lock.json* ./
+RUN npm install
 COPY . .
-RUN bun run build
+RUN npm rebuild better-sqlite3 2>&1 | tail -3
+RUN mkdir -p /app/data && npm run build
 
-FROM oven/bun:1-slim AS runner
+FROM node:22-slim AS runner
 WORKDIR /app
-
-RUN addgroup -S aurora && adduser -S aurora -G aurora
+RUN apt-get update -qq && apt-get install -y -qq wget 2>/dev/null | tail -1 && \
+    groupadd -r aurora && useradd -r -g aurora -d /app aurora
 
 ENV NODE_ENV=production \
 	PORT=3000 \
@@ -18,14 +20,15 @@ ENV NODE_ENV=production \
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/node_modules ./node_modules
+COPY start.js ./
 
 RUN mkdir -p /app/data /app/servers && chown -R aurora:aurora /app
 
 USER aurora
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 	CMD wget --no-verbose --tries=1 --spider http://localhost:3000/login || exit 1
 
 STOPSIGNAL SIGTERM
-CMD ["bun", "./build/index.js"]
+CMD ["node", "./start.js"]

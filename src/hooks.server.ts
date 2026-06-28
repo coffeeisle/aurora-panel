@@ -1,5 +1,4 @@
 import type { Handle } from '@sveltejs/kit';
-import type { Server as HttpServer } from 'node:http';
 import { lucia } from '$lib/server/auth';
 import { startScheduler } from '$lib/server/scheduler';
 import { createSocketServer } from '$lib/server/socket';
@@ -7,14 +6,13 @@ import { setIO } from '$lib/server/io';
 
 startScheduler();
 
-let ioInitialized = false;
-
-export function init({ server }: { server: HttpServer }) {
-	if (ioInitialized) return;
-	ioInitialized = true;
-	const io = createSocketServer(server);
-	setIO(io);
-	console.log('[Server] Socket.IO initialized on /ws');
+export function init() {
+	(globalThis as any).__auroraSocketInit = (httpServer: import('node:http').Server) => {
+		const io = createSocketServer(httpServer);
+		setIO(io);
+		console.log('[Server] Socket.IO initialized');
+	};
+	console.log('[Server] Initialized');
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
