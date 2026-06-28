@@ -17,18 +17,5 @@ export default defineConfig({
 	build: {
 		cssMinify: false
 	},
-	plugins: [
-		sveltekit(),
-		{
-			name: 'socket.io-server',
-			configureServer(vite) {
-				const httpServer = vite.httpServer;
-				if (httpServer) {
-					import('./src/lib/server/socket').then(({ createSocketServer }) => {
-						createSocketServer(httpServer as any);
-					});
-				}
-			}
-		}
-	]
+	plugins: [sveltekit()]
 });

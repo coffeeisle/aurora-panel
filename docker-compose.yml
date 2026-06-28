@@ -50,6 +50,7 @@ services:
       - DAEMON_JWT_SECRET=${DAEMON_JWT_SECRET:?DAEMON_JWT_SECRET is required}
       - DAEMON_ID=${DAEMON_ID:-node-01}
       - DAEMON_NAME=${DAEMON_NAME:-Primary Node}
+      - DAEMON_HOST=${DAEMON_HOST:-aurora-daemon}
       - SERVERS_DIR=/servers
       - DATA_DIR=/data
       - DOCKER_NETWORK=aurora

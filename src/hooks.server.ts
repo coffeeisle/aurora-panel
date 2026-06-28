@@ -3,8 +3,10 @@ import { lucia } from '$lib/server/auth';
 import { startScheduler } from '$lib/server/scheduler';
 import { createSocketServer } from '$lib/server/socket';
 import { setIO } from '$lib/server/io';
+import { hydrateDaemonsFromDb } from '$lib/server/daemon-client';
 
 startScheduler();
+hydrateDaemonsFromDb();
 
 export function init() {
 	(globalThis as any).__auroraSocketInit = (httpServer: import('node:http').Server) => {

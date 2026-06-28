@@ -15,6 +15,7 @@ const PANEL_URL = process.env['PANEL_URL'] ?? 'http://localhost:5173';
 const DAEMON_PORT = parseInt(process.env['DAEMON_PORT'] ?? '8443', 10);
 const DAEMON_ID = process.env['DAEMON_ID'] ?? 'node-01';
 const DAEMON_NAME = process.env['DAEMON_NAME'] ?? DAEMON_ID;
+const DAEMON_HOST = process.env['DAEMON_HOST'] ?? 'localhost';
 const DAEMON_VERSION = process.env['DAEMON_VERSION'] ?? '0.2.0';
 const SERVERS_DIR = process.env['SERVERS_DIR'] ?? './servers';
 const DATA_DIR = process.env['DATA_DIR'] ?? './data';
@@ -660,7 +661,7 @@ function sendRegistration(socket: Socket): void {
 	socket.emit('daemon:register', {
 		id: DAEMON_ID,
 		name: DAEMON_NAME,
-		host: 'localhost',
+		host: DAEMON_HOST,
 		port: DAEMON_PORT,
 		...systemStats,
 		servers: Array.from(servers.values()).map(s => ({

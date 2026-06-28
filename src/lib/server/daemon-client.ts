@@ -1,4 +1,7 @@
 import { generateDaemonToken } from '$lib/server/daemon-auth';
+import { db } from '$lib/server/db';
+import { nodes } from '$lib/server/db/schema';
+import { eq } from 'drizzle-orm';
 
 export interface DaemonInfo {
 	id: string;
@@ -32,17 +35,54 @@ function getOrRefreshToken(): string {
 	return panelToken;
 }
 
-export function registerDaemon(id: string, host: string, port: number) {
+export function hydrateDaemonsFromDb() {
+	const rows = db.select().from(nodes).all();
+	for (const row of rows) {
+		const url = `http://${row.host}:${row.port}`;
+		knownDaemons.set(row.id, {
+			id: row.id,
+			name: row.name,
+			url,
+			host: row.host,
+			port: row.port,
+			connected: row.status === 'online',
+			lastSeen: row.lastPingAt?.getTime() ?? 0,
+			version: '0.2.0',
+		});
+	}
+}
+
+export function registerDaemon(id: string, host: string, port: number, name?: string) {
 	const url = `http://${host}:${port}`;
 	const existing = knownDaemons.get(id);
 	if (existing) {
 		existing.connected = true;
 		existing.lastSeen = Date.now();
-	} else {
-		knownDaemons.set(id, {
-			id, name: id, url, host, port, connected: true, lastSeen: Date.now(), version: '0.2.0',
-		});
+		return;
 	}
+	knownDaemons.set(id, {
+		id, name: name ?? id, url, host, port, connected: true, lastSeen: Date.now(), version: '0.2.0',
+	});
+}
+
+export function persistDaemon(id: string, host: string, port: number, name?: string) {
+	const now = new Date();
+	const existing = db.select({ id: nodes.id }).from(nodes).where(eq(nodes.id, id)).get();
+	if (existing) {
+		db.update(nodes).set({ host, port, name: name ?? id, status: 'online', updatedAt: now }).where(eq(nodes.id, id)).run();
+	} else {
+		db.insert(nodes).values({ id, name: name ?? id, host, port, token: '', status: 'online', createdAt: now, updatedAt: now }).run();
+	}
+	registerDaemon(id, host, port, name);
+}
+
+export function markDaemonOffline(id: string) {
+	const info = knownDaemons.get(id);
+	if (info) {
+		info.connected = false;
+		info.lastSeen = Date.now();
+	}
+	db.update(nodes).set({ status: 'offline', updatedAt: new Date() }).where(eq(nodes.id, id)).run();
 }
 
 export function getDaemonUrl(daemonId: string): string | null {

@@ -1,6 +1,7 @@
 import type { Server as HttpServer } from 'node:http';
 import { Server as SocketServer } from 'socket.io';
 import { verifyDaemonToken } from './daemon-auth';
+import { persistDaemon, markDaemonOffline, updateDaemonStats } from './daemon-client';
 
 export function createSocketServer(httpServer: HttpServer) {
 	const io = new SocketServer(httpServer, {
@@ -44,10 +45,15 @@ export function createSocketServer(httpServer: HttpServer) {
 			console.log(`[Socket] Daemon connected: ${daemonId} (${socket.id})`);
 
 			socket.on('daemon:register', (data: Record<string, unknown>) => {
-				io.emit('daemon:registered', data);
+				const host = (data.host as string) || 'localhost';
+				const port = (data.port as number) || 8443;
+				const name = (data.name as string) || daemonId;
+				persistDaemon(daemonId, host, port, name);
+				io.emit('daemon:registered', { ...data, id: daemonId, host, port, name });
 			});
 
 			socket.on('daemon:stats', (data: Record<string, unknown>) => {
+				updateDaemonStats(data as Parameters<typeof updateDaemonStats>[0]);
 				io.emit('daemon:stats', data);
 			});
 
@@ -75,6 +81,7 @@ export function createSocketServer(httpServer: HttpServer) {
 			});
 
 			socket.on('disconnect', () => {
+				markDaemonOffline(daemonId);
 				io.emit('daemon:disconnected', { id: daemonId });
 				console.log(`[Socket] Daemon disconnected: ${daemonId}`);
 			});

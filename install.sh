@@ -159,6 +159,22 @@ if [[ "$INSTALL_MODE" == "1" || "$INSTALL_MODE" == "2" ]]; then
 	done
 fi
 
+# ── Install aurora CLI ──
+echo ""
+info "Install 'aurora' CLI command (status|start|stop|logs|update|backup)?"
+read -rp "Install aurora CLI? [Y/n]: " INSTALL_CLI </dev/tty
+if [[ ! "$INSTALL_CLI" =~ ^[Nn] ]]; then
+	if [[ $EUID -eq 0 ]]; then
+		cp "${INSTALL_DIR}/aurora.sh" /usr/local/bin/aurora
+		chmod +x /usr/local/bin/aurora
+		ok "aurora CLI installed to /usr/local/bin/aurora"
+		info "Run 'aurora help' from anywhere to get started"
+	else
+		warn "Root required to install system-wide CLI. Skipping."
+		info "Run 'sudo ./aurora.sh install' from ${INSTALL_DIR} to install manually"
+	fi
+fi
+
 # ── Summary ──
 echo ""
 echo "=========================================="
