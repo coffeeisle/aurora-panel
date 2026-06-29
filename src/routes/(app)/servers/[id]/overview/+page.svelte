@@ -16,6 +16,8 @@
 	let serverStatus = $state<string>('stopped');
 	let server = $state<ServerType | null>(null);
 	let loading = $state(true);
+	let eulaNeeded = $state(false);
+	let acceptingEula = $state(false);
 
 	const serverId = $derived($page.params.id);
 
@@ -51,11 +53,30 @@
 			}
 		});
 
+		socket.on('server:eula:needed', (data: { id: string }) => {
+			if (data.id === serverId) eulaNeeded = true;
+		});
+
+		socket.on('server:eula:accepted', (data: { id: string }) => {
+			if (data.id === serverId) {
+				eulaNeeded = false;
+				acceptingEula = false;
+				startServer();
+			}
+		});
+
 		return () => {
 			socket?.disconnect();
 			socket = null;
 		};
 	});
+
+	function acceptEulaAndStart() {
+		if (!socket) return;
+		acceptingEula = true;
+		socket.emit('server:accept-eula', serverId);
+		toasts.info('Accepting EULA', 'Minecraft EULA accepted, starting server...');
+	}
 
 	function startServer() {
 		socket?.emit('server:start', serverId);
@@ -151,6 +172,28 @@
 				</button>
 			</div>
 		</div>
+
+		{#if eulaNeeded}
+			<div class="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
+				<div class="flex items-center justify-between gap-4">
+					<div class="text-sm text-yellow-300">
+						<strong>Minecraft EULA</strong> — You must accept the
+						<a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer" class="underline hover:text-yellow-200">Minecraft End User License Agreement</a>
+						before starting this server.
+					</div>
+					<button
+						class="flex items-center gap-1.5 rounded-md bg-yellow-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-yellow-500 transition-colors disabled:opacity-50"
+						disabled={acceptingEula}
+						onclick={acceptEulaAndStart}
+					>
+						{#if acceptingEula}
+							<Loader2 class="h-3.5 w-3.5 animate-spin" />
+						{/if}
+						Accept & Start
+					</button>
+				</div>
+			</div>
+		{/if}
 
 		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 			<Card.Root>

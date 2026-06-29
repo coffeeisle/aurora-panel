@@ -70,8 +70,16 @@ export function createSocketServer(_httpServer?: http.Server) {
 				io.emit('server:crashed:global', data);
 			});
 
-			socket.on('server:created', (data: { id: string; success: boolean; status: string }) => {
+			socket.on('server:created', (data: { id: string; success: boolean; status: string; eulaAccepted?: boolean }) => {
 				io.emit('server:created', data);
+			});
+
+			socket.on('server:eula:needed', (data: { id: string }) => {
+				io.to(`server:${data.id}`).emit('server:eula:needed', data);
+			});
+
+			socket.on('server:eula:accepted', (data: { id: string }) => {
+				io.to(`server:${data.id}`).emit('server:eula:accepted', data);
 			});
 
 			socket.on('console:output', (data: { serverId: string; line: string }) => {
@@ -118,6 +126,10 @@ export function createSocketServer(_httpServer?: http.Server) {
 
 			socket.on('server:restart', (serverId: string) => {
 				emitToDaemon(io, 'server:restart', serverId);
+			});
+
+			socket.on('server:accept-eula', (serverId: string) => {
+				emitToDaemon(io, 'server:accept-eula', serverId);
 			});
 		}
 	});

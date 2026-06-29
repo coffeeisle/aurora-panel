@@ -168,8 +168,22 @@ export function ensureEula(serversDir: string, serverId: string): void {
 	const baseDir = ensureServerDir(serversDir, serverId);
 	const eulaPath = join(baseDir, 'eula.txt');
 	if (!existsSync(eulaPath)) {
-		writeFileSync(eulaPath, 'eula=true\n', 'utf-8');
+		writeFileSync(eulaPath, 'eula=false\n', 'utf-8');
 	}
+}
+
+export function readEula(serversDir: string, serverId: string): boolean {
+	const eulaPath = join(ensureServerDir(serversDir, serverId), 'eula.txt');
+	try {
+		return existsSync(eulaPath) && readFileSync(eulaPath, 'utf-8').trim().endsWith('eula=true');
+	} catch {
+		return false;
+	}
+}
+
+export function acceptEula(serversDir: string, serverId: string): void {
+	const eulaPath = join(ensureServerDir(serversDir, serverId), 'eula.txt');
+	writeFileSync(eulaPath, 'eula=true\n', 'utf-8');
 }
 
 export function getServerDirectorySize(serversDir: string, serverId: string): number {

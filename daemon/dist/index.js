@@ -60615,9 +60615,22 @@ function ensureEula(serversDir, serverId) {
   const baseDir = ensureServerDir(serversDir, serverId);
   const eulaPath = join(baseDir, "eula.txt");
   if (!existsSync(eulaPath)) {
-    writeFileSync(eulaPath, `eula=true
+    writeFileSync(eulaPath, `eula=false
 `, "utf-8");
   }
+}
+function readEula(serversDir, serverId) {
+  const eulaPath = join(ensureServerDir(serversDir, serverId), "eula.txt");
+  try {
+    return existsSync(eulaPath) && readFileSync(eulaPath, "utf-8").trim().endsWith("eula=true");
+  } catch {
+    return false;
+  }
+}
+function acceptEula(serversDir, serverId) {
+  const eulaPath = join(ensureServerDir(serversDir, serverId), "eula.txt");
+  writeFileSync(eulaPath, `eula=true
+`, "utf-8");
 }
 function getServerDirectorySize(serversDir, serverId) {
   const baseDir = join(serversDir, serverId);
@@ -60732,13 +60745,14 @@ function getHostInfo() {
 
 // src/index.ts
 init_eggs();
-import { existsSync as existsSync3, readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2 } from "fs";
+import { existsSync as existsSync3, readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2, rmSync as rmSync2 } from "fs";
 import { join as join3 } from "path";
 var JWT_SECRET = process.env["DAEMON_JWT_SECRET"] ?? "dev-secret";
 var PANEL_URL = process.env["PANEL_URL"] ?? "http://localhost:5173";
 var DAEMON_PORT = parseInt(process.env["DAEMON_PORT"] ?? "8443", 10);
 var DAEMON_ID = process.env["DAEMON_ID"] ?? "node-01";
 var DAEMON_NAME = process.env["DAEMON_NAME"] ?? DAEMON_ID;
+var DAEMON_HOST = process.env["DAEMON_HOST"] ?? "localhost";
 var DAEMON_VERSION = process.env["DAEMON_VERSION"] ?? "0.2.0";
 var SERVERS_DIR = process.env["SERVERS_DIR"] ?? "./servers";
 var DATA_DIR = process.env["DATA_DIR"] ?? "./data";
@@ -60938,10 +60952,14 @@ async function main() {
       return;
     }
     console.log(`[Daemon] Starting server ${srv.name} (${srv.id})`);
+    if (srv.type === "minecraft" && !readEula(SERVERS_DIR, srv.id)) {
+      socket.emit("server:eula:needed", { id: serverId });
+      socket.emit("server:status", { id: serverId, status: "error", error: "EULA not accepted" });
+      return;
+    }
     updateServerStatus(srv.id, "starting");
     socket.emit("server:status", { id: serverId, status: "starting" });
     if (srv.processType === "docker") {
-      ensureEula(SERVERS_DIR, srv.id);
       const started = await startContainer(srv, DOCKER_NETWORK);
       if (started) {
         updateServerStatus(srv.id, "running");
@@ -61011,6 +61029,14 @@ async function main() {
       socket.emit("server:status", { id: serverId, status: "running" });
     }
   });
+  socket.on("server:accept-eula", async (serverId) => {
+    const srv = servers.get(serverId);
+    if (!srv)
+      return;
+    console.log(`[Daemon] Accepting EULA for ${srv.name} (${srv.id})`);
+    acceptEula(SERVERS_DIR, srv.id);
+    socket.emit("server:eula:accepted", { id: serverId });
+  });
   socket.on("server:create", async (data) => {
     if (servers.has(data.id)) {
       console.log(`[Daemon] Server ${data.id} already exists`);
@@ -61056,8 +61082,38 @@ async function main() {
       }
     }
     updateServerStatus(srv.id, "stopped");
-    socket.emit("server:created", { id: data.id, success: true, status: "stopped" });
+    const eulaAccepted = readEula(SERVERS_DIR, srv.id);
+    socket.emit("server:created", { id: data.id, success: true, status: "stopped", eulaAccepted });
+    if (srv.type === "minecraft" && !eulaAccepted) {
+      socket.emit("server:eula:needed", { id: data.id });
+    }
     saveState();
+  });
+  socket.on("server:delete", async ({ id }) => {
+    const srv = servers.get(id);
+    if (!srv)
+      return;
+    console.log(`[Daemon] Deleting server ${srv.name} (${id})`);
+    if (srv.processType === "docker") {
+      try {
+        await stopContainer(srv);
+        console.log(`[Daemon] Container for ${id} stopped and removed`);
+      } catch (e) {
+        console.warn(`[Daemon] Could not stop container for ${id}:`, e);
+      }
+    }
+    const serverDir = join3(SERVERS_DIR, id);
+    if (existsSync3(serverDir)) {
+      try {
+        rmSync2(serverDir, { recursive: true, force: true });
+        console.log(`[Daemon] Deleted server files at ${serverDir}`);
+      } catch (e) {
+        console.warn(`[Daemon] Could not delete server files for ${id}:`, e);
+      }
+    }
+    servers.delete(id);
+    saveState();
+    socket.emit("server:deleted", { id, success: true });
   });
   socket.on("console:command", async ({ serverId, command }) => {
     const srv = servers.get(serverId);
@@ -61324,7 +61380,7 @@ function sendRegistration(socket) {
   socket.emit("daemon:register", {
     id: DAEMON_ID,
     name: DAEMON_NAME,
-    host: "localhost",
+    host: DAEMON_HOST,
     port: DAEMON_PORT,
     ...systemStats,
     servers: Array.from(servers.values()).map((s) => ({

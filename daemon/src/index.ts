@@ -2,10 +2,10 @@ import { io as createSocketClient, type Socket } from 'socket.io-client';
 import jwt from 'jsonwebtoken';
 import type { ManagedServer, SystemStats } from './types';
 import { ensureDockerNetwork, getContainerName, getContainerState, startContainer, stopContainer, restartContainer, executeCommand, getContainerLogs, streamContainerLogs, sendStdin, getContainerStats } from './container';
-import { listFiles, readFile, writeFile_, deleteEntry, renameEntry, createEntry, createServerDirectory, ensureEula, getServerDirectorySize, readBinaryFile, writeBinaryFile, copyFile } from './files';
+import { listFiles, readFile, writeFile_, deleteEntry, renameEntry, createEntry, createServerDirectory, ensureEula, readEula, acceptEula, getServerDirectorySize, readBinaryFile, writeBinaryFile, copyFile } from './files';
 import { getSystemStats } from './metrics';
 import { getEgg, getEggForPlatform } from './eggs';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { getHostInfo } from './metrics';
 
@@ -249,11 +249,16 @@ async function main() {
 		if (!srv) { socket.emit('server:status', { id: serverId, status: 'error', error: 'Server not found' }); return; }
 		console.log(`[Daemon] Starting server ${srv.name} (${srv.id})`);
 
+		if (srv.type === 'minecraft' && !readEula(SERVERS_DIR, srv.id)) {
+			socket.emit('server:eula:needed', { id: serverId });
+			socket.emit('server:status', { id: serverId, status: 'error', error: 'EULA not accepted' });
+			return;
+		}
+
 		updateServerStatus(srv.id, 'starting');
 		socket.emit('server:status', { id: serverId, status: 'starting' });
 
 		if (srv.processType === 'docker') {
-			ensureEula(SERVERS_DIR, srv.id);
 			const started = await startContainer(srv, DOCKER_NETWORK);
 			if (started) {
 				updateServerStatus(srv.id, 'running');
@@ -331,6 +336,16 @@ async function main() {
 		}
 	});
 
+	// ── EULA Acceptance ──
+
+	socket.on('server:accept-eula', async (serverId: string) => {
+		const srv = servers.get(serverId);
+		if (!srv) return;
+		console.log(`[Daemon] Accepting EULA for ${srv.name} (${srv.id})`);
+		acceptEula(SERVERS_DIR, srv.id);
+		socket.emit('server:eula:accepted', { id: serverId });
+	});
+
 	// ── Server Creation (with auto-download) ──
 
 	socket.on('server:create', async (data: {
@@ -388,8 +403,47 @@ async function main() {
 		}
 
 		updateServerStatus(srv.id, 'stopped');
-		socket.emit('server:created', { id: data.id, success: true, status: 'stopped' });
+
+		const eulaAccepted = readEula(SERVERS_DIR, srv.id);
+		socket.emit('server:created', { id: data.id, success: true, status: 'stopped', eulaAccepted });
+
+		if (srv.type === 'minecraft' && !eulaAccepted) {
+			socket.emit('server:eula:needed', { id: data.id });
+		}
+
 		saveState();
+	});
+
+	// ── Server Deletion ──
+
+	socket.on('server:delete', async ({ id }: { id: string }) => {
+		const srv = servers.get(id);
+		if (!srv) return;
+
+		console.log(`[Daemon] Deleting server ${srv.name} (${id})`);
+
+		if (srv.processType === 'docker') {
+			try {
+				await stopContainer(srv);
+				console.log(`[Daemon] Container for ${id} stopped and removed`);
+			} catch (e) {
+				console.warn(`[Daemon] Could not stop container for ${id}:`, e);
+			}
+		}
+
+		const serverDir = join(SERVERS_DIR, id);
+		if (existsSync(serverDir)) {
+			try {
+				rmSync(serverDir, { recursive: true, force: true });
+				console.log(`[Daemon] Deleted server files at ${serverDir}`);
+			} catch (e) {
+				console.warn(`[Daemon] Could not delete server files for ${id}:`, e);
+			}
+		}
+
+		servers.delete(id);
+		saveState();
+		socket.emit('server:deleted', { id, success: true });
 	});
 
 	// ── Console Events ──

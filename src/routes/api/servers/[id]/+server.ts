@@ -69,11 +69,24 @@ export const DELETE: RequestHandler = async ({ params }) => {
 		return json({ error: 'Server not found' }, { status: 404 });
 	}
 
+	const nodeId = (existing as Record<string, unknown>).nodeId as string;
+
 	db.delete(installedMods).where(eq(installedMods.serverId, params.id)).run();
 	db.delete(schedules).where(eq(schedules.serverId, params.id)).run();
 	db.delete(backups).where(eq(backups.serverId, params.id)).run();
 	db.delete(serverPermissions).where(eq(serverPermissions.serverId, params.id)).run();
 	db.delete(servers).where(eq(servers.id, params.id)).run();
+
+	try {
+		const io = (await import('$lib/server/io')).getIO();
+		if (io) {
+			for (const [, sock] of io.sockets.sockets) {
+				if (sock.handshake.auth.type === 'daemon' && sock.handshake.auth.daemonId === nodeId) {
+					sock.emit('server:delete', { id: params.id });
+				}
+			}
+		}
+	} catch { /* daemon might be offline */ }
 
 	return json({ success: true });
 };

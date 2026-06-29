@@ -22,6 +22,7 @@ export async function searchMods(params: {
 	environment?: string;
 	offset: number;
 	limit: number;
+	index?: string;
 }): Promise<ModrinthSearchResult> {
 	const facets: Record<string, string[]> = {
 		project_type: [params.projectType]
