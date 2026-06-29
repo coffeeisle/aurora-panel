@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { daemonStore, type DaemonStatus } from '$lib/stores/daemon';
 	import { toasts } from '$lib/stores/toast';
 	import { z } from 'zod';
+	import { io, type Socket } from 'socket.io-client';
 	import {
 		HardDrive, Server, Cpu, MemoryStick, Activity, Plus,
 		Trash2, Edit, Circle, ExternalLink, ArrowRight, Check, Sparkles, Loader2
@@ -22,14 +23,50 @@
 	let newPort = $state('8443');
 	let registering = $state(false);
 	let fieldErrors = $state<Record<string, string>>({});
-	let dbNodes = $state<{ id: string; name: string; host: string; port: number }[]>([]);
+	let dbNodes = $state<{ id: string; name: string; host: string; port: number; status: string }[]>([]);
+	let socket: Socket | null = null;
 
 	onMount(async () => {
 		try {
 			const res = await fetch('/api/nodes');
-			if (res.ok) dbNodes = await res.json();
+			if (res.ok) {
+				const nodes: { id: string; name: string; host: string; port: number; status: string }[] = await res.json();
+				dbNodes = nodes;
+				for (const n of nodes) {
+					daemonStore.registerDaemon({
+						id: n.id,
+						name: n.name,
+						host: n.host,
+						port: n.port,
+					});
+					if (n.status !== 'online') {
+						daemonStore.disconnectDaemon(n.id);
+					}
+				}
+			}
 		} catch { /* ignore */ }
 		loading = false;
+
+		socket = io(`${location.protocol}//${location.hostname}:3001`, {
+			path: '/ws',
+			auth: { type: 'browser', token: '' },
+		});
+
+		socket.on('daemon:registered', (data: { id: string; name?: string; host?: string; port?: number }) => {
+			daemonStore.registerDaemon(data);
+		});
+
+		socket.on('daemon:stats', (data: { id: string; cpu?: { load: number; cores: number }; memory?: { total: number; used: number }; disk?: { total: number; used: number }; uptime?: number; version?: string }) => {
+			daemonStore.updateStats(data.id, { cpu: data.cpu, memory: data.memory, disk: data.disk, uptime: data.uptime });
+		});
+
+		socket.on('daemon:disconnected', (data: { id: string }) => {
+			daemonStore.disconnectDaemon(data.id);
+		});
+	});
+
+	onDestroy(() => {
+		socket?.close();
 	});
 
 	const daemons = $derived(Array.from($daemonStore.values()).sort((a, b) => a.id.localeCompare(b.id)));
@@ -59,7 +96,16 @@
 	async function loadNodes() {
 		try {
 			const res = await fetch('/api/nodes');
-			if (res.ok) dbNodes = await res.json();
+			if (res.ok) {
+				const nodes: { id: string; name: string; host: string; port: number; status: string }[] = await res.json();
+				dbNodes = nodes;
+				for (const n of nodes) {
+					daemonStore.registerDaemon({ id: n.id, name: n.name, host: n.host, port: n.port });
+					if (n.status !== 'online') {
+						daemonStore.disconnectDaemon(n.id);
+					}
+				}
+			}
 		} catch { /* ignore */ }
 	}
 
@@ -411,7 +457,7 @@
 			{/each}
 
 			{#each dbNodes.filter(n => !daemons.some(d => d.id === n.id)) as dbNode}
-				<div class="rounded-lg border border-border bg-card opacity-60">
+				<div class="rounded-lg border border-border bg-card {dbNode.status === 'online' ? '' : 'opacity-60'}">
 					<div class="flex items-start justify-between p-4 pb-3">
 						<div class="flex items-center gap-3">
 							<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
@@ -420,9 +466,9 @@
 							<div>
 								<div class="flex items-center gap-2">
 									<h3 class="text-sm font-semibold text-foreground">{dbNode.name}</h3>
-									<span class="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-red-500/10 text-red-400">
+									<span class="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium {dbNode.status === 'online' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}">
 										<Circle class="h-1.5 w-1.5 fill-current" />
-										Offline
+										{dbNode.status === 'online' ? 'Online' : 'Offline'}
 									</span>
 								</div>
 								<p class="text-xs text-muted-foreground font-mono mt-0.5">{dbNode.host}:{dbNode.port}</p>
