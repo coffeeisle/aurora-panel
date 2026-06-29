@@ -23,13 +23,23 @@
 		date_modified: string;
 	};
 
+	const SORT_OPTIONS = [
+		{ value: 'downloads', label: 'Most Downloads' },
+		{ value: 'follows', label: 'Most Follows' },
+		{ value: 'updated', label: 'Recently Updated' },
+		{ value: 'newest', label: 'Recently Published' },
+		{ value: 'relevance', label: 'Relevance' },
+	] as const;
+
+	type FilterOptions = {
+		gameVersions: string[];
+		loaders: string[];
+		categories: string[];
+	};
+
 	type Props = {
 		projectType: string;
-		filterOptions: {
-			gameVersions: string[];
-			loaders: string[];
-			categories: string[];
-		};
+		filterOptions: FilterOptions;
 		title: string;
 	};
 
@@ -43,6 +53,7 @@
 	let totalResults = $state(0);
 	let installing = $state<Set<string>>(new Set());
 	let updatingAll = $state(false);
+	let sortIndex = $state('downloads');
 
 	let selectedVersions = $state<string[]>([]);
 	let selectedLoaders = $state<string[]>([]);
@@ -146,6 +157,7 @@
 		}
 		params.set('facets', JSON.stringify(facets));
 		params.set('limit', '20');
+		params.set('index', sortIndex);
 
 		try {
 			const res = await fetch(`/api/modrinth/search?${params}`);
@@ -315,20 +327,34 @@
 				{/if}
 			</p>
 		</div>
-		{#if hasUpdates}
-			<button
-				class="flex items-center gap-1.5 rounded-md border border-yellow-500/30 px-3 py-1.5 text-xs text-yellow-400 hover:bg-yellow-500/10 transition-colors disabled:opacity-50"
-				disabled={updatingAll}
-				onclick={updateAll}
-			>
-				{#if updatingAll}
-					<Loader2 class="h-3.5 w-3.5 animate-spin" />
-				{:else}
-					<RefreshCw class="h-3.5 w-3.5" />
-				{/if}
-				Update All ({updateCount})
-			</button>
-		{/if}
+		<div class="flex items-center gap-2">
+			<div class="relative">
+				<select
+					class="appearance-none rounded-lg border border-border bg-background px-8 py-1.5 pr-8 text-xs text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary cursor-pointer"
+					bind:value={sortIndex}
+					onchange={() => { offset = 0; results = []; performSearch(); }}
+				>
+					{#each SORT_OPTIONS as opt}
+						<option value={opt.value}>{opt.label}</option>
+					{/each}
+				</select>
+				<svg class="pointer-events-none absolute right-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+			</div>
+			{#if hasUpdates}
+				<button
+					class="flex items-center gap-1.5 rounded-md border border-yellow-500/30 px-3 py-1.5 text-xs text-yellow-400 hover:bg-yellow-500/10 transition-colors disabled:opacity-50"
+					disabled={updatingAll}
+					onclick={updateAll}
+				>
+					{#if updatingAll}
+						<Loader2 class="h-3.5 w-3.5 animate-spin" />
+					{:else}
+						<RefreshCw class="h-3.5 w-3.5" />
+					{/if}
+					Update All ({updateCount})
+				</button>
+			{/if}
+		</div>
 	</div>
 
 	<div class="flex gap-4 flex-1 overflow-hidden">

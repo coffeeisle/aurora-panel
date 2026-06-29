@@ -47,7 +47,7 @@ export async function searchMods(params: {
 	url.searchParams.set('facets', buildFacets(facets));
 	url.searchParams.set('offset', String(params.offset));
 	url.searchParams.set('limit', String(params.limit));
-	url.searchParams.set('index', 'relevance');
+	url.searchParams.set('index', params.index || 'downloads');
 
 	const res = await fetch(url.toString(), {
 		headers: { 'User-Agent': 'AuroraPanel/0.1' }

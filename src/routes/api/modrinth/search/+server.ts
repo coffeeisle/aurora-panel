@@ -32,6 +32,8 @@ export const GET: RequestHandler = async ({ url }) => {
 		}
 	}
 
-	const result = await searchMods({ query, projectType, gameVersions, loaders, categories: [], environment, offset, limit });
+	const index = url.searchParams.get('index') || 'downloads';
+
+	const result = await searchMods({ query, projectType, gameVersions, loaders, categories: [], environment, offset, limit, index });
 	return json(result);
 };
