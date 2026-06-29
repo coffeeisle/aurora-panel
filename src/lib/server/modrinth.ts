@@ -60,6 +60,14 @@ export async function searchMods(params: {
 	return res.json() as Promise<ModrinthSearchResult>;
 }
 
+export async function getGameVersions(): Promise<{ version: string; version_type: string; date: string; major: boolean }[]> {
+	const res = await fetch(`${BASE}/tag/game_version`, {
+		headers: { 'User-Agent': 'AuroraPanel/0.1' }
+	});
+	if (!res.ok) throw new Error(`Modrinth API error: ${res.status}`);
+	return res.json();
+}
+
 export async function getProjectVersions(
 	projectId: string,
 	gameVersions?: string[],

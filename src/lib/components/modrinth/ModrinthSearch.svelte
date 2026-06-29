@@ -68,6 +68,9 @@
 	let installedMap = $state<Record<string, { version: string; hasUpdate: boolean }>>({});
 	let updateCheckDone = $state(false);
 
+	let availableVersions = $state<string[]>([]);
+	let versionsLoading = $state(true);
+
 	let debounceTimer: ReturnType<typeof setTimeout>;
 
 	$effect(() => {
@@ -75,7 +78,21 @@
 			allowIncompatible = localStorage.getItem(storageKey) === 'true';
 		} catch {}
 		loadInstalledState();
+		loadGameVersions();
 	});
+
+	async function loadGameVersions() {
+		versionsLoading = true;
+		try {
+			const res = await fetch('/api/modrinth/versions');
+			if (res.ok) {
+				const data: { version: string; version_type: string }[] = await res.json();
+				availableVersions = data.map(v => v.version);
+			}
+		} catch {} finally {
+			versionsLoading = false;
+		}
+	}
 
 	async function loadInstalledState() {
 		try {
@@ -360,9 +377,14 @@
 	<div class="flex gap-4 flex-1 overflow-hidden">
 		<aside class="w-56 flex-shrink-0 space-y-4 overflow-y-auto">
 			<div>
-				<h3 class="mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Game Version</h3>
-				<div class="flex flex-wrap gap-1.5">
-					{#each filterOptions.gameVersions as version}
+				<h3 class="mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+					Game Version
+					{#if versionsLoading}
+						<span class="ml-1 text-[10px] text-muted-foreground/50">loading...</span>
+					{/if}
+				</h3>
+				<div class="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto scrollbar-thin">
+					{#each (availableVersions.length > 0 ? availableVersions : filterOptions.gameVersions) as version}
 						<button
 							class="rounded-md border px-2 py-1 text-xs transition-colors {selectedVersions.includes(version) ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-muted-foreground'}"
 							onclick={() => { selectedVersions = toggleFilter(selectedVersions, version); offset = 0; results = []; performSearch(); }}
