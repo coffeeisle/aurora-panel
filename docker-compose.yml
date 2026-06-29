@@ -6,8 +6,7 @@ services:
       dockerfile: Dockerfile
     image: aurora-panel:latest
     container_name: aurora-panel
-    ports:
-      - "${PANEL_PORT:-3000}:3000"
+    network_mode: host
     volumes:
       - panel-data:/app/data
       - server-data:/app/servers
@@ -19,6 +18,7 @@ services:
       - AUTH_SECRET=${AUTH_SECRET:?AUTH_SECRET is required}
       - DAEMON_JWT_SECRET=${DAEMON_JWT_SECRET:?DAEMON_JWT_SECRET is required}
       - PUBLIC_APP_URL=${PUBLIC_APP_URL:-http://localhost:3000}
+      - SOCKET_PORT=${SOCKET_PORT:-3001}
     restart: unless-stopped
     stop_grace_period: 30s
     healthcheck:
@@ -27,8 +27,6 @@ services:
       timeout: 10s
       start_period: 10s
       retries: 5
-    networks:
-      - aurora
 
   # ── Aurora Daemon ──
   daemon:
@@ -37,8 +35,7 @@ services:
       dockerfile: Dockerfile
     image: aurora-daemon:latest
     container_name: aurora-daemon
-    ports:
-      - "${DAEMON_PORT:-8443}:8443"
+    network_mode: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - server-data:/servers
@@ -46,11 +43,11 @@ services:
     environment:
       - NODE_ENV=production
       - DAEMON_PORT=8443
-      - PANEL_URL=${PANEL_URL:-http://panel:3000}
+      - PANEL_URL=${PANEL_URL:-http://localhost:3001}
       - DAEMON_JWT_SECRET=${DAEMON_JWT_SECRET:?DAEMON_JWT_SECRET is required}
       - DAEMON_ID=${DAEMON_ID:-node-01}
       - DAEMON_NAME=${DAEMON_NAME:-Primary Node}
-      - DAEMON_HOST=${DAEMON_HOST:-aurora-daemon}
+      - DAEMON_HOST=${DAEMON_HOST:-localhost}
       - SERVERS_DIR=/servers
       - DATA_DIR=/data
       - DOCKER_NETWORK=aurora
@@ -58,11 +55,6 @@ services:
       - MAX_CRASH_RESTARTS=${MAX_CRASH_RESTARTS:-3}
     restart: unless-stopped
     stop_grace_period: 15s
-    depends_on:
-      panel:
-        condition: service_started
-    networks:
-      - aurora
 
   # ── PostgreSQL (Optional: enable with --profile with-postgres) ──
   postgres:

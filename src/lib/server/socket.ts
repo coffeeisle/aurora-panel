@@ -1,15 +1,18 @@
-import type { Server as HttpServer } from 'node:http';
+import http from 'node:http';
 import { Server as SocketServer } from 'socket.io';
 import { verifyDaemonToken } from './daemon-auth';
 import { persistDaemon, markDaemonOffline, updateDaemonStats } from './daemon-client';
 
-export function createSocketServer(httpServer: HttpServer) {
-	const io = new SocketServer(httpServer, {
+export function createSocketServer(_httpServer?: http.Server) {
+	const socketPort = parseInt(process.env['SOCKET_PORT'] ?? '3001', 10);
+	const ioServer = http.createServer();
+	const io = new SocketServer(ioServer, {
 		cors: {
-			origin: process.env['PUBLIC_APP_URL'] ?? 'http://localhost:5173',
+			origin: process.env['PUBLIC_APP_URL'] ?? '*',
 			credentials: true,
 		},
 		path: '/ws',
+		addTrailingSlash: false,
 		pingInterval: 25000,
 		pingTimeout: 20000,
 	});
@@ -117,6 +120,10 @@ export function createSocketServer(httpServer: HttpServer) {
 				emitToDaemon(io, 'server:restart', serverId);
 			});
 		}
+	});
+
+	ioServer.listen(socketPort, () => {
+		console.log(`[Socket] Listening on port ${socketPort}`);
 	});
 
 	return io;

@@ -9,8 +9,8 @@ startScheduler();
 hydrateDaemonsFromDb();
 
 export function init() {
-	(globalThis as any).__auroraSocketInit = (httpServer: import('node:http').Server) => {
-		const io = createSocketServer(httpServer);
+	(globalThis as any).__auroraSocketInit = () => {
+		const io = createSocketServer();
 		setIO(io);
 		console.log('[Server] Socket.IO initialized');
 	};

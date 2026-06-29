@@ -19,7 +19,8 @@
 	const isBusy = $derived(serverStatus === 'starting' || serverStatus === 'stopping' || serverStatus === 'restarting');
 
 	onMount(() => {
-		socket = io({
+		const socketPort = 3001;
+		socket = io(`${location.protocol}//${location.hostname}:${socketPort}`, {
 			path: '/ws',
 			auth: { token: 'dev-token', type: 'dev' },
 			transports: ['websocket', 'polling']

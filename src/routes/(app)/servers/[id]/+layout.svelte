@@ -55,7 +55,8 @@
 				loading = false;
 			});
 
-		socket = io({
+		const socketPort = 3001;
+		socket = io(`${location.protocol}//${location.hostname}:${socketPort}`, {
 			path: '/ws',
 			auth: { token: 'dev-token', type: 'browser' },
 			transports: ['websocket', 'polling']
